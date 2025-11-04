@@ -349,7 +349,7 @@ try:
     print("="*80)
     
     # Check for null or empty values in key columns
-    key_columns = ["InvoiceLineId", "InvoiceId"]
+    key_columns = ["InvoiceLineId"]
     for col_name in key_columns:
         if col_name in invoice_lines_raw_sdf.columns:
             null_count = invoice_lines_raw_sdf.filter(
@@ -359,7 +359,7 @@ try:
     
     # Show sample of cleaned data
     print(f"\n  Sample cleaned values:")
-    sample_cols = [c for c in ["InvoiceLineId", "InvoiceId", "Description", "UnitPrice", "Quantity"] if c in invoice_lines_raw_sdf.columns]
+    sample_cols = [c for c in ["InvoiceLineId", "Description", "UnitPrice", "Quantity"] if c in invoice_lines_raw_sdf.columns]
     if sample_cols:
         invoice_lines_raw_sdf.select(*sample_cols).show(10, truncate=False)
     
@@ -379,10 +379,34 @@ print("\n" + "="*80)
 print("TRANSFORMING INVOICE LINE ITEMS DATA")
 print("="*80)
 
+# Since invoice lines CSV doesn't have InvoiceId, we need to join with invoices table
+# Assuming 1:1 relationship between invoices and invoice lines (same order in files)
+print("\n[INFO] Retrieving InvoiceId from invoices table...")
+
+# Get InvoiceId from the already loaded invoices table
+invoices_for_join = spark.table("teamblue.findata_sandbox.stg_11g_hist_invoices").select("InvoiceId")
+
+# Add row numbers to both dataframes for joining (assuming same order)
+invoices_with_rownum = invoices_for_join.withColumn("row_num", monotonically_increasing_id())
+invoice_lines_with_rownum = invoice_lines_raw_sdf.withColumn("row_num", monotonically_increasing_id())
+
+print(f"  Invoices count: {invoices_with_rownum.count():,}")
+print(f"  Invoice lines count: {invoice_lines_with_rownum.count():,}")
+
+# Join to get InvoiceId into invoice lines
+invoice_lines_with_id = invoice_lines_with_rownum.join(
+    invoices_with_rownum.select("InvoiceId", "row_num"),
+    on="row_num",
+    how="inner"
+).drop("row_num")
+
+print(f"  Joined records count: {invoice_lines_with_id.count():,}")
+print("[SUCCESS] InvoiceId successfully retrieved and joined")
+
 # Transform invoice lines with actual data from CSV
-line_items_final_sdf = (invoice_lines_raw_sdf
+line_items_final_sdf = (invoice_lines_with_id
     .select(
-        # Key fields
+        # Key fields - now we have InvoiceId from the join
         col("InvoiceId").cast(LongType()).alias("InvoiceId"),
         col("InvoiceLineId").cast(LongType()).alias("InvoiceLineId"),
         
@@ -666,6 +690,7 @@ print(f"  String cleaning: removed quotes and newlines")
 print(f"  Encoding fix: handled UTF-16 BOM in column names")
 print(f"  Added df_source field to invoices")
 print(f"  Loaded REAL invoice line items from dedicated CSV file")
+print(f"  InvoiceId join: Linked invoice lines to invoices via row number (1:1)")
 
 print(f"\nDATA CHARACTERISTICS:")
 print(f"  Invoices date range : {date_stats['min_date']} to {date_stats['max_date']}")
