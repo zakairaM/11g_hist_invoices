@@ -86,7 +86,7 @@ try:
     key_columns = ["InvoiceId", "InvoiceNumber", "CustomerKey", "InvoiceDate"]
     for col_name in key_columns:
         null_count = invoices_raw_sdf.filter(
-            col(col_name).isNull() | (trim(col(col_name)) == "")
+            invoices_raw_sdf[col_name].isNull() | (trim(invoices_raw_sdf[col_name]) == "")
         ).count()
         print(f"  {col_name:30s} : {null_count:,} nulls/empty")
     
@@ -363,7 +363,7 @@ try:
         
     for col_name in key_columns:
         null_count = invoice_lines_raw_sdf.filter(
-            col(col_name).isNull() | (trim(col(col_name)) == "")
+            invoice_lines_raw_sdf[col_name].isNull() | (trim(invoice_lines_raw_sdf[col_name]) == "")
         ).count()
         print(f"  {col_name:30s} : {null_count:,} nulls/empty")
     
