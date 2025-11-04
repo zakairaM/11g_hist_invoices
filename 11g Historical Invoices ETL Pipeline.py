@@ -349,7 +349,7 @@ try:
     print("="*80)
     
     # Check for null or empty values in key columns
-    key_columns = ["InvoiceLineId", "InvoiceId"]
+    key_columns = ["InvoiceLineId"]
     for col_name in key_columns:
         if col_name in invoice_lines_raw_sdf.columns:
             null_count = invoice_lines_raw_sdf.filter(
@@ -359,7 +359,7 @@ try:
     
     # Show sample of cleaned data
     print(f"\n  Sample cleaned values:")
-    sample_cols = [c for c in ["InvoiceLineId", "InvoiceId", "Description", "UnitPrice", "Quantity"] if c in invoice_lines_raw_sdf.columns]
+    sample_cols = [c for c in ["InvoiceLineId", "Description", "UnitPrice", "Quantity"] if c in invoice_lines_raw_sdf.columns]
     if sample_cols:
         invoice_lines_raw_sdf.select(*sample_cols).show(10, truncate=False)
     
@@ -383,7 +383,6 @@ print("="*80)
 line_items_final_sdf = (invoice_lines_raw_sdf
     .select(
         # Key fields
-        col("InvoiceId").cast(LongType()).alias("InvoiceId"),
         col("InvoiceLineId").cast(LongType()).alias("InvoiceLineId"),
         
         # Pricing fields - replace comma with dot for European decimal format
@@ -465,7 +464,7 @@ try:
     loaded_table = spark.table("teamblue.findata_sandbox.stg_11g_hist_invoice_items")
     
     # Check for null values in key columns
-    key_columns = ["InvoiceId", "InvoiceLineId", "StartDate", "EndDate"]
+    key_columns = ["InvoiceLineId", "StartDate", "EndDate"]
     for col_name in key_columns:
         null_count = loaded_table.filter(col(col_name).isNull()).count()
         print(f"  {col_name:30s} : {null_count:,} nulls")
@@ -474,14 +473,12 @@ try:
     stats = loaded_table.agg(
         min("StartDate").alias("min_date"),
         max("EndDate").alias("max_date"),
-        countDistinct("InvoiceId").alias("distinct_invoices"),
         sum("Quantity").alias("total_quantity")
     ).first()
     
     print(f"\n  Date Range:")
     print(f"    Earliest: {stats['min_date']}")
     print(f"    Latest  : {stats['max_date']}")
-    print(f"\n  Distinct Invoices: {stats['distinct_invoices']:,}")
     print(f"  Total Quantity: {stats['total_quantity']:,}")
     
     # Display sample from loaded table
@@ -519,8 +516,8 @@ print(f"\nRecord Counts:")
 print(f"  Invoices loaded: {invoices_loaded_count:,}")
 print(f"  Line items loaded: {line_items_loaded_count:,}")
 
-relationship_check = "PASS" if invoices_loaded_count == line_items_loaded_count else "FAIL"
-print(f"  Expected 1:1 relationship: {relationship_check}")
+relationship_check = "N/A (InvoiceId missing from line items)"
+print(f"  Invoice-to-line-item relationship: {relationship_check}")
 
 # Detailed validation of invoices table
 print("\n" + "="*80)
@@ -601,7 +598,6 @@ line_items_table = spark.table("teamblue.findata_sandbox.stg_11g_hist_invoice_it
 
 # Statistics
 line_stats = line_items_table.agg(
-    countDistinct("InvoiceId").alias("distinct_invoices"),
     sum("Quantity").alias("total_quantity"),
     avg("TaxPercentage").alias("avg_tax_pct"),
     min("StartDate").alias("min_date"),
@@ -609,7 +605,6 @@ line_stats = line_items_table.agg(
 ).first()
 
 print(f"\nLine Items Statistics:")
-print(f"  Distinct Invoices: {line_stats['distinct_invoices']:,}")
 print(f"  Total Quantity   : {line_stats['total_quantity']:,}")
 print(f"  Avg Tax %        : {line_stats['avg_tax_pct']:.2f}%")
 print(f"  Date Range       : {line_stats['min_date']} to {line_stats['max_date']}")
@@ -620,26 +615,15 @@ print("SAMPLE FROM LINE ITEMS TABLE")
 print("="*80)
 display(line_items_table.limit(5))
 
-# Verify referential integrity
+# Note: Cannot verify referential integrity as invoice lines CSV does not contain InvoiceId
 print("\n" + "="*80)
 print("REFERENTIAL INTEGRITY CHECK")
 print("="*80)
+print("  [WARNING] InvoiceId column not present in invoice lines CSV")
+print("  Cannot establish relationship between invoices and line items")
+print("  Skipping referential integrity check")
 
-# Check for invoices without line items
-invoices_without_items = (invoices_table
-    .join(line_items_table, "InvoiceId", "left_anti")
-    .count())
-
-# Check for line items without invoices
-items_without_invoices = (line_items_table
-    .join(invoices_table, "InvoiceId", "left_anti")
-    .count())
-
-print(f"  Invoices without line items: {invoices_without_items:,}")
-print(f"  Line items without invoices: {items_without_invoices:,}")
-
-integrity_check = "PASS" if (invoices_without_items == 0 and items_without_invoices == 0) else "FAIL"
-print(f"  Referential Integrity: {integrity_check}")
+integrity_check = "N/A (InvoiceId missing from line items)"
 
 # Pipeline execution summary
 print("\n" + "="*80)
