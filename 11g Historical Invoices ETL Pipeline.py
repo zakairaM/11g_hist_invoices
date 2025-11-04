@@ -396,41 +396,107 @@ print("\n" + "="*80)
 print("TRANSFORMING INVOICE LINE ITEMS DATA")
 print("="*80)
 
-# InvoiceId already exists in the invoicelines CSV - directly use it!
 print("\n[INFO] Transforming invoice line items from CSV...")
 print(f"  Available columns: {invoice_lines_raw_sdf.columns}")
 
-# Transform invoice lines directly from CSV (InvoiceId is already present)
-line_items_final_sdf = (invoice_lines_raw_sdf
-    .select(
-        # InvoiceId comes directly from the CSV
-        col("InvoiceId").cast(LongType()).alias("InvoiceId"),
-        col("InvoiceLineId").cast(LongType()).alias("InvoiceLineId"),
-        
-        # Pricing fields - replace comma with dot for European decimal format
-        regexp_replace(col("UnitPrice"), ",", ".").cast(DoubleType()).alias("UnitPrice"),
-        regexp_replace(col("Quantity"), ",", ".").cast(DoubleType()).alias("Quantity"),
-        
-        # Tax fields
-        regexp_replace(col("TaxPercentage"), ",", ".").cast(DoubleType()).alias("TaxPercentage"),
-        regexp_replace(col("TaxTotal"), ",", ".").cast(DoubleType()).alias("TaxTotal"),
-        
-        # Total fields
-        regexp_replace(col("TotalTaxExcl"), ",", ".").cast(DoubleType()).alias("TotalTaxExcl"),
-        regexp_replace(col("TotalTaxIncl"), ",", ".").cast(DoubleType()).alias("TotalTaxIncl"),
-        
-        # Date fields
-        to_date(regexp_replace(col("StartDate"), " \\d+:\\d+:\\d+$", ""), "d/MM/yyyy").alias("StartDate"),
-        to_date(regexp_replace(col("EndDate"), " \\d+:\\d+:\\d+$", ""), "d/MM/yyyy").alias("EndDate"),
-        
-        # Description and product fields
-        col("Description").alias("Description"),
-        col("ProductCode").alias("ProductCode"),
-        col("ProductGroupCode").alias("ProductGroupCode")
+# Check if InvoiceId exists in the CSV
+if "InvoiceId" in invoice_lines_raw_sdf.columns:
+    print("\n[INFO] InvoiceId found in CSV - using directly")
+    # Transform invoice lines directly from CSV (InvoiceId is already present)
+    line_items_final_sdf = (invoice_lines_raw_sdf
+        .select(
+            # InvoiceId comes directly from the CSV
+            col("InvoiceId").cast(LongType()).alias("InvoiceId"),
+            col("InvoiceLineId").cast(LongType()).alias("InvoiceLineId"),
+            
+            # Pricing fields - replace comma with dot for European decimal format
+            regexp_replace(col("UnitPrice"), ",", ".").cast(DoubleType()).alias("UnitPrice"),
+            regexp_replace(col("Quantity"), ",", ".").cast(DoubleType()).alias("Quantity"),
+            
+            # Tax fields
+            regexp_replace(col("TaxPercentage"), ",", ".").cast(DoubleType()).alias("TaxPercentage"),
+            regexp_replace(col("TaxTotal"), ",", ".").cast(DoubleType()).alias("TaxTotal"),
+            
+            # Total fields
+            regexp_replace(col("TotalTaxExcl"), ",", ".").cast(DoubleType()).alias("TotalTaxExcl"),
+            regexp_replace(col("TotalTaxIncl"), ",", ".").cast(DoubleType()).alias("TotalTaxIncl"),
+            
+            # Date fields
+            to_date(regexp_replace(col("StartDate"), " \\d+:\\d+:\\d+$", ""), "d/MM/yyyy").alias("StartDate"),
+            to_date(regexp_replace(col("EndDate"), " \\d+:\\d+:\\d+$", ""), "d/MM/yyyy").alias("EndDate"),
+            
+            # Description and product fields
+            col("Description").alias("Description"),
+            col("ProductCode").alias("ProductCode"),
+            col("ProductGroupCode").alias("ProductGroupCode")
+        )
     )
-)
-
-print(f"\n[SUCCESS] Invoice line items transformed with InvoiceId")
+    print(f"\n[SUCCESS] Invoice line items transformed with InvoiceId from CSV")
+else:
+    print("\n[WARNING] InvoiceId NOT found in CSV")
+    print("\n[INFO] Checking for InvoiceNumber to link to invoices...")
+    
+    # Check if InvoiceNumber exists as an alternative
+    if "InvoiceNumber" in invoice_lines_raw_sdf.columns:
+        print("\n[INFO] InvoiceNumber found - will link via InvoiceNumber")
+        
+        # First transform the line items without InvoiceId
+        line_items_temp_sdf = (invoice_lines_raw_sdf
+            .select(
+                col("InvoiceNumber").cast(LongType()).alias("InvoiceNumber"),
+                col("InvoiceLineId").cast(LongType()).alias("InvoiceLineId"),
+                
+                # Pricing fields - replace comma with dot for European decimal format
+                regexp_replace(col("UnitPrice"), ",", ".").cast(DoubleType()).alias("UnitPrice"),
+                regexp_replace(col("Quantity"), ",", ".").cast(DoubleType()).alias("Quantity"),
+                
+                # Tax fields
+                regexp_replace(col("TaxPercentage"), ",", ".").cast(DoubleType()).alias("TaxPercentage"),
+                regexp_replace(col("TaxTotal"), ",", ".").cast(DoubleType()).alias("TaxTotal"),
+                
+                # Total fields
+                regexp_replace(col("TotalTaxExcl"), ",", ".").cast(DoubleType()).alias("TotalTaxExcl"),
+                regexp_replace(col("TotalTaxIncl"), ",", ".").cast(DoubleType()).alias("TotalTaxIncl"),
+                
+                # Date fields
+                to_date(regexp_replace(col("StartDate"), " \\d+:\\d+:\\d+$", ""), "d/MM/yyyy").alias("StartDate"),
+                to_date(regexp_replace(col("EndDate"), " \\d+:\\d+:\\d+$", ""), "d/MM/yyyy").alias("EndDate"),
+                
+                # Description and product fields
+                col("Description").alias("Description"),
+                col("ProductCode").alias("ProductCode"),
+                col("ProductGroupCode").alias("ProductGroupCode")
+            )
+        )
+        
+        # Join with invoices table to get InvoiceId
+        print("\n[INFO] Joining with invoices table to get InvoiceId...")
+        invoices_lookup = spark.table("teamblue.findata_sandbox.stg_11g_hist_invoices").select("InvoiceId", "InvoiceNumber")
+        
+        line_items_final_sdf = (line_items_temp_sdf
+            .join(invoices_lookup, "InvoiceNumber", "left")
+            .select(
+                "InvoiceId",
+                "InvoiceLineId",
+                "UnitPrice",
+                "Quantity",
+                "TaxPercentage",
+                "TaxTotal",
+                "TotalTaxExcl",
+                "TotalTaxIncl",
+                "StartDate",
+                "EndDate",
+                "Description",
+                "ProductCode",
+                "ProductGroupCode"
+            )
+        )
+        print(f"\n[SUCCESS] Invoice line items transformed and linked via InvoiceNumber")
+    else:
+        print("\n[ERROR] Neither InvoiceId nor InvoiceNumber found in invoice lines CSV!")
+        print(f"[ERROR] Cannot establish relationship between invoices and line items")
+        print(f"[ERROR] Available columns: {invoice_lines_raw_sdf.columns}")
+        raise ValueError("Cannot find InvoiceId or InvoiceNumber in invoice lines CSV to link to invoices")
 
 # Repartition for optimal write performance
 line_items_final_sdf = line_items_final_sdf.repartition(200)
