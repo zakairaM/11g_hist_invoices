@@ -393,6 +393,212 @@ except Exception as e:
 # COMMAND ----------
 
 print("\n" + "="*80)
+print("DIAGNOSTIC: INVESTIGATING INVOICENUMBER MISMATCH")
+print("="*80)
+
+# Check what columns exist in both files
+print("\n[INFO] Columns in invoices CSV:")
+print(f"  {invoices_raw_sdf.columns}")
+
+print("\n[INFO] Columns in invoice lines CSV:")
+print(f"  {invoice_lines_raw_sdf.columns}")
+
+# Detect the join key that will be used
+join_key = None
+join_type = None
+for col_name in invoice_lines_raw_sdf.columns:
+    cleaned_col = col_name.strip()
+    if "InvoiceId" in cleaned_col or "invoiceid" in cleaned_col.lower():
+        join_key = col_name
+        join_type = "InvoiceId"
+        break
+    elif "InvoiceNumber" in cleaned_col or "invoicenumber" in cleaned_col.lower():
+        join_key = col_name
+        join_type = "InvoiceNumber"
+        break
+
+print(f"\n[INFO] Join key detected: '{join_key}' (type: {join_type})")
+
+if join_key and join_type == "InvoiceNumber":
+    print("\n" + "="*80)
+    print("ANALYZING INVOICENUMBER MISMATCHES")
+    print("="*80)
+    
+    # Get clean InvoiceNumbers from both sources
+    invoices_numbers = (invoices_raw_sdf
+        .select(col("InvoiceNumber").alias("InvoiceNumber_raw"))
+        .withColumn("InvoiceNumber_clean", trim(col("InvoiceNumber_raw")))
+        .withColumn("InvoiceNumber_long", col("InvoiceNumber_clean").cast(LongType()))
+        .select("InvoiceNumber_raw", "InvoiceNumber_clean", "InvoiceNumber_long")
+        .distinct()
+    )
+    
+    line_items_numbers = (invoice_lines_raw_sdf
+        .select(col(join_key).alias("InvoiceNumber_raw"))
+        .withColumn("InvoiceNumber_clean", trim(col("InvoiceNumber_raw")))
+        .withColumn("InvoiceNumber_long", col("InvoiceNumber_clean").cast(LongType()))
+        .select("InvoiceNumber_raw", "InvoiceNumber_clean", "InvoiceNumber_long")
+        .distinct()
+    )
+    
+    # Count distinct values
+    inv_count = invoices_numbers.count()
+    lines_count = line_items_numbers.count()
+    
+    print(f"\n[INFO] Distinct InvoiceNumbers:")
+    print(f"  In invoices.csv     : {inv_count:,}")
+    print(f"  In invoicelines.csv : {lines_count:,}")
+    
+    # Check for NULL/empty values before casting
+    print("\n[INFO] Data quality checks BEFORE casting to LongType:")
+    
+    inv_nulls = invoices_raw_sdf.filter(
+        col("InvoiceNumber").isNull() | (trim(col("InvoiceNumber")) == "")
+    ).count()
+    print(f"  Invoices with NULL/empty InvoiceNumber: {inv_nulls:,}")
+    
+    lines_nulls = invoice_lines_raw_sdf.filter(
+        col(join_key).isNull() | (trim(col(join_key)) == "")
+    ).count()
+    print(f"  Line items with NULL/empty InvoiceNumber: {lines_nulls:,}")
+    
+    # Check for non-numeric values
+    print("\n[INFO] Checking for non-numeric InvoiceNumbers:")
+    
+    inv_non_numeric = invoices_raw_sdf.filter(
+        col("InvoiceNumber").isNotNull() & 
+        (trim(col("InvoiceNumber")) != "") &
+        (~col("InvoiceNumber").rlike("^\\s*\\d+\\s*$"))
+    ).count()
+    print(f"  Invoices with non-numeric InvoiceNumber: {inv_non_numeric:,}")
+    
+    if inv_non_numeric > 0:
+        print("  Sample non-numeric invoice numbers:")
+        invoices_raw_sdf.filter(
+            col("InvoiceNumber").isNotNull() & 
+            (trim(col("InvoiceNumber")) != "") &
+            (~col("InvoiceNumber").rlike("^\\s*\\d+\\s*$"))
+        ).select("InvoiceNumber").show(10, truncate=False)
+    
+    lines_non_numeric = invoice_lines_raw_sdf.filter(
+        col(join_key).isNotNull() & 
+        (trim(col(join_key)) != "") &
+        (~col(join_key).rlike("^\\s*\\d+\\s*$"))
+    ).count()
+    print(f"  Line items with non-numeric InvoiceNumber: {lines_non_numeric:,}")
+    
+    if lines_non_numeric > 0:
+        print("  Sample non-numeric line item invoice numbers:")
+        invoice_lines_raw_sdf.filter(
+            col(join_key).isNotNull() & 
+            (trim(col(join_key)) != "") &
+            (~col(join_key).rlike("^\\s*\\d+\\s*$"))
+        ).select(join_key).show(10, truncate=False)
+    
+    # Check for values lost during casting
+    print("\n[INFO] Checking values lost during LongType casting:")
+    
+    inv_lost_in_cast = invoices_numbers.filter(
+        col("InvoiceNumber_clean").isNotNull() & 
+        (col("InvoiceNumber_clean") != "") &
+        col("InvoiceNumber_long").isNull()
+    ).count()
+    print(f"  Invoices lost in casting: {inv_lost_in_cast:,}")
+    
+    if inv_lost_in_cast > 0:
+        print("  Sample values lost in casting:")
+        invoices_numbers.filter(
+            col("InvoiceNumber_clean").isNotNull() & 
+            (col("InvoiceNumber_clean") != "") &
+            col("InvoiceNumber_long").isNull()
+        ).show(10, truncate=False)
+    
+    lines_lost_in_cast = line_items_numbers.filter(
+        col("InvoiceNumber_clean").isNotNull() & 
+        (col("InvoiceNumber_clean") != "") &
+        col("InvoiceNumber_long").isNull()
+    ).count()
+    print(f"  Line items lost in casting: {lines_lost_in_cast:,}")
+    
+    if lines_lost_in_cast > 0:
+        print("  Sample values lost in casting:")
+        line_items_numbers.filter(
+            col("InvoiceNumber_clean").isNotNull() & 
+            (col("InvoiceNumber_clean") != "") &
+            col("InvoiceNumber_long").isNull()
+        ).show(10, truncate=False)
+    
+    # Find InvoiceNumbers that exist in line items but NOT in invoices (after casting)
+    print("\n[INFO] Finding InvoiceNumbers in line items that DON'T exist in invoices:")
+    
+    # Get valid invoice numbers from invoices (after casting to Long)
+    valid_invoice_numbers = (invoices_raw_sdf
+        .select(col("InvoiceNumber").cast(LongType()).alias("InvoiceNumber"))
+        .filter(col("InvoiceNumber").isNotNull())
+        .distinct()
+    )
+    
+    # Get line item invoice numbers (after casting to Long)
+    line_item_numbers = (invoice_lines_raw_sdf
+        .select(col(join_key).cast(LongType()).alias("InvoiceNumber"))
+        .filter(col("InvoiceNumber").isNotNull())
+        .distinct()
+    )
+    
+    # Find orphaned invoice numbers
+    orphaned_numbers = line_item_numbers.join(valid_invoice_numbers, "InvoiceNumber", "left_anti")
+    orphaned_count = orphaned_numbers.count()
+    
+    print(f"  Orphaned InvoiceNumbers (in lines but not in invoices): {orphaned_count:,}")
+    
+    if orphaned_count > 0:
+        print(f"\n  Sample of orphaned InvoiceNumbers:")
+        orphaned_numbers.orderBy("InvoiceNumber").show(20, truncate=False)
+        
+        # Count how many line items are affected
+        affected_lines = invoice_lines_raw_sdf.filter(
+            col(join_key).cast(LongType()).isin([row.InvoiceNumber for row in orphaned_numbers.collect()])
+        ).count()
+        print(f"\n  Total line items affected by orphaned InvoiceNumbers: {affected_lines:,}")
+        
+        # Show sample of affected line items
+        print(f"\n  Sample of affected line items:")
+        invoice_lines_raw_sdf.filter(
+            col(join_key).cast(LongType()).isin([row.InvoiceNumber for row in orphaned_numbers.limit(10).collect()])
+        ).select(
+            col(join_key).alias("InvoiceNumber"),
+            "InvoiceLineId",
+            "Description"
+        ).show(10, truncate=False)
+    
+    # Find InvoiceNumbers that exist in invoices but NOT in line items
+    print("\n[INFO] Finding InvoiceNumbers in invoices that DON'T have line items:")
+    
+    invoices_without_lines = valid_invoice_numbers.join(line_item_numbers, "InvoiceNumber", "left_anti")
+    invoices_no_lines_count = invoices_without_lines.count()
+    
+    print(f"  InvoiceNumbers with no line items: {invoices_no_lines_count:,}")
+    
+    if invoices_no_lines_count > 0:
+        print(f"\n  Sample of InvoiceNumbers without line items:")
+        invoices_without_lines.orderBy("InvoiceNumber").show(20, truncate=False)
+    
+    # Summary
+    print("\n" + "="*80)
+    print("MISMATCH ANALYSIS SUMMARY")
+    print("="*80)
+    print(f"\n  Total distinct InvoiceNumbers in invoices    : {inv_count:,}")
+    print(f"  Total distinct InvoiceNumbers in line items  : {lines_count:,}")
+    print(f"  InvoiceNumbers in lines but not in invoices  : {orphaned_count:,}")
+    print(f"  InvoiceNumbers in invoices but not in lines  : {invoices_no_lines_count:,}")
+    print(f"  NULL/empty in invoices                       : {inv_nulls:,}")
+    print(f"  NULL/empty in line items                     : {lines_nulls:,}")
+    print(f"  Non-numeric in invoices                      : {inv_non_numeric:,}")
+    print(f"  Non-numeric in line items                    : {lines_non_numeric:,}")
+    print(f"  Lost in casting (invoices)                   : {inv_lost_in_cast:,}")
+    print(f"  Lost in casting (line items)                 : {lines_lost_in_cast:,}")
+
+print("\n" + "="*80)
 print("TRANSFORMING INVOICE LINE ITEMS DATA")
 print("="*80)
 
