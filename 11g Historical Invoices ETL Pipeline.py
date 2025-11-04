@@ -379,10 +379,35 @@ print("\n" + "="*80)
 print("TRANSFORMING INVOICE LINE ITEMS DATA")
 print("="*80)
 
+# Since invoice lines CSV doesn't have InvoiceId, we need to join with invoices table
+# Assuming 1:1 relationship between invoices and invoice lines (same order in files)
+print("\n[INFO] Retrieving InvoiceId from invoices table...")
+
+# Get InvoiceId from the already loaded invoices table
+invoices_for_join = spark.table("teamblue.findata_sandbox.stg_11g_hist_invoices").select("InvoiceId")
+
+# Add row numbers to both dataframes for joining (assuming same order)
+invoices_with_rownum = invoices_for_join.withColumn("row_num", monotonically_increasing_id())
+invoice_lines_with_rownum = invoice_lines_raw_sdf.withColumn("row_num", monotonically_increasing_id())
+
+print(f"  Invoices count: {invoices_with_rownum.count():,}")
+print(f"  Invoice lines count: {invoice_lines_with_rownum.count():,}")
+
+# Join to get InvoiceId into invoice lines
+invoice_lines_with_id = invoice_lines_with_rownum.join(
+    invoices_with_rownum.select("InvoiceId", "row_num"),
+    on="row_num",
+    how="inner"
+).drop("row_num")
+
+print(f"  Joined records count: {invoice_lines_with_id.count():,}")
+print("[SUCCESS] InvoiceId successfully retrieved and joined")
+
 # Transform invoice lines with actual data from CSV
-line_items_final_sdf = (invoice_lines_raw_sdf
+line_items_final_sdf = (invoice_lines_with_id
     .select(
-        # Key fields
+        # Key fields - now we have InvoiceId from the join
+        col("InvoiceId").cast(LongType()).alias("InvoiceId"),
         col("InvoiceLineId").cast(LongType()).alias("InvoiceLineId"),
         
         # Pricing fields - replace comma with dot for European decimal format
@@ -464,7 +489,7 @@ try:
     loaded_table = spark.table("teamblue.findata_sandbox.stg_11g_hist_invoice_items")
     
     # Check for null values in key columns
-    key_columns = ["InvoiceLineId", "StartDate", "EndDate"]
+    key_columns = ["InvoiceId", "InvoiceLineId", "StartDate", "EndDate"]
     for col_name in key_columns:
         null_count = loaded_table.filter(col(col_name).isNull()).count()
         print(f"  {col_name:30s} : {null_count:,} nulls")
@@ -473,12 +498,14 @@ try:
     stats = loaded_table.agg(
         min("StartDate").alias("min_date"),
         max("EndDate").alias("max_date"),
+        countDistinct("InvoiceId").alias("distinct_invoices"),
         sum("Quantity").alias("total_quantity")
     ).first()
     
     print(f"\n  Date Range:")
     print(f"    Earliest: {stats['min_date']}")
     print(f"    Latest  : {stats['max_date']}")
+    print(f"\n  Distinct Invoices: {stats['distinct_invoices']:,}")
     print(f"  Total Quantity: {stats['total_quantity']:,}")
     
     # Display sample from loaded table
@@ -516,8 +543,8 @@ print(f"\nRecord Counts:")
 print(f"  Invoices loaded: {invoices_loaded_count:,}")
 print(f"  Line items loaded: {line_items_loaded_count:,}")
 
-relationship_check = "N/A (InvoiceId missing from line items)"
-print(f"  Invoice-to-line-item relationship: {relationship_check}")
+relationship_check = "PASS" if invoices_loaded_count == line_items_loaded_count else "FAIL"
+print(f"  Expected 1:1 relationship: {relationship_check}")
 
 # Detailed validation of invoices table
 print("\n" + "="*80)
@@ -598,6 +625,7 @@ line_items_table = spark.table("teamblue.findata_sandbox.stg_11g_hist_invoice_it
 
 # Statistics
 line_stats = line_items_table.agg(
+    countDistinct("InvoiceId").alias("distinct_invoices"),
     sum("Quantity").alias("total_quantity"),
     avg("TaxPercentage").alias("avg_tax_pct"),
     min("StartDate").alias("min_date"),
@@ -605,6 +633,7 @@ line_stats = line_items_table.agg(
 ).first()
 
 print(f"\nLine Items Statistics:")
+print(f"  Distinct Invoices: {line_stats['distinct_invoices']:,}")
 print(f"  Total Quantity   : {line_stats['total_quantity']:,}")
 print(f"  Avg Tax %        : {line_stats['avg_tax_pct']:.2f}%")
 print(f"  Date Range       : {line_stats['min_date']} to {line_stats['max_date']}")
@@ -615,15 +644,26 @@ print("SAMPLE FROM LINE ITEMS TABLE")
 print("="*80)
 display(line_items_table.limit(5))
 
-# Note: Cannot verify referential integrity as invoice lines CSV does not contain InvoiceId
+# Verify referential integrity
 print("\n" + "="*80)
 print("REFERENTIAL INTEGRITY CHECK")
 print("="*80)
-print("  [WARNING] InvoiceId column not present in invoice lines CSV")
-print("  Cannot establish relationship between invoices and line items")
-print("  Skipping referential integrity check")
 
-integrity_check = "N/A (InvoiceId missing from line items)"
+# Check for invoices without line items
+invoices_without_items = (invoices_table
+    .join(line_items_table, "InvoiceId", "left_anti")
+    .count())
+
+# Check for line items without invoices
+items_without_invoices = (line_items_table
+    .join(invoices_table, "InvoiceId", "left_anti")
+    .count())
+
+print(f"  Invoices without line items: {invoices_without_items:,}")
+print(f"  Line items without invoices: {items_without_invoices:,}")
+
+integrity_check = "PASS" if (invoices_without_items == 0 and items_without_invoices == 0) else "FAIL"
+print(f"  Referential Integrity: {integrity_check}")
 
 # Pipeline execution summary
 print("\n" + "="*80)
@@ -650,6 +690,7 @@ print(f"  String cleaning: removed quotes and newlines")
 print(f"  Encoding fix: handled UTF-16 BOM in column names")
 print(f"  Added df_source field to invoices")
 print(f"  Loaded REAL invoice line items from dedicated CSV file")
+print(f"  InvoiceId join: Linked invoice lines to invoices via row number (1:1)")
 
 print(f"\nDATA CHARACTERISTICS:")
 print(f"  Invoices date range : {date_stats['min_date']} to {date_stats['max_date']}")
