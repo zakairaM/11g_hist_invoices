@@ -266,59 +266,151 @@ except Exception as e:
 
 # COMMAND ----------
 
-print("\n" + "="*80)
-print("GENERATING LINE ITEMS")
+print("="*80)
+print("LOADING INVOICE LINES CSV FILE")
 print("="*80)
 
-window_spec = Window.partitionBy("InvoiceId").orderBy("InvoiceId")
+try:
+    # Read Invoice Lines CSV 
+    invoice_lines_raw_sdf = (spark
+        .read
+        .option("header", "true")
+        .option("delimiter", ";")
+        .option("quote", '"')
+        .option("escape", '"')
+        .option("multiline", "true")
+        .option("encoding", "UTF-8")
+        .option("ignoreLeadingWhiteSpace", "true")
+        .option("ignoreTrailingWhiteSpace", "true")
+        .option("mode", "PERMISSIVE")
+        .csv("/Volumes/teamblue/default/teamblue-client/sandbox_files/belgium/COM_20251023_144040_invoicelines.csv"))
+    
+    # Get the first column name (which may have encoding issues)
+    first_col = invoice_lines_raw_sdf.columns[0]
+    
+    # Rename the problematic first column if needed
+    invoice_lines_raw_sdf = invoice_lines_raw_sdf.withColumnRenamed(first_col, "InvoiceLineId")
+    
+    print(f"[SUCCESS] Renamed problematic first column to 'InvoiceLineId'")
+    
+    # Clean the DATA in each column (remove quotes and newlines from values)
+    for col_name in invoice_lines_raw_sdf.columns:
+        invoice_lines_raw_sdf = invoice_lines_raw_sdf.withColumn(
+            col_name,
+            trim(regexp_replace(regexp_replace(col(col_name), '"', ''), '\\n', ''))
+        )
+    
+    # Cache the cleaned dataframe
+    invoice_lines_raw_sdf.cache()
+    
+    record_count = invoice_lines_raw_sdf.count()
+    column_count = len(invoice_lines_raw_sdf.columns)
+    
+    print(f"\n[SUCCESS] Invoice Lines CSV loaded and cleaned successfully")
+    print(f"  Records: {record_count:,}")
+    print(f"  Columns: {column_count}")
+    
+    # Display sample data
+    print("\n" + "="*80)
+    print("SAMPLE DATA (First 5 rows)")
+    print("="*80)
+    display(invoice_lines_raw_sdf.limit(5))
+    
+    # Show schema
+    print("\n" + "="*80)
+    print("SCHEMA SUMMARY")
+    print("="*80)
+    for field in invoice_lines_raw_sdf.schema.fields:
+        print(f"  {field.name:30s} : {field.dataType}")
+    
+    # Data quality checks
+    print("\n" + "="*80)
+    print("DATA QUALITY CHECKS")
+    print("="*80)
+    
+    # Check for null or empty values in key columns
+    key_columns = ["InvoiceLineId", "InvoiceId"]
+    for col_name in key_columns:
+        if col_name in invoice_lines_raw_sdf.columns:
+            null_count = invoice_lines_raw_sdf.filter(
+                col(col_name).isNull() | (trim(col(col_name)) == "")
+            ).count()
+            print(f"  {col_name:30s} : {null_count:,} nulls/empty")
+    
+    # Show sample of cleaned data
+    print(f"\n  Sample cleaned values:")
+    sample_cols = [c for c in ["InvoiceLineId", "InvoiceId", "Description", "UnitPrice", "Quantity"] if c in invoice_lines_raw_sdf.columns]
+    if sample_cols:
+        invoice_lines_raw_sdf.select(*sample_cols).show(10, truncate=False)
+    
+    print("\n" + "="*80)
+    print("[SUCCESS] Invoice Lines data loaded and cached successfully")
+    print("="*80)
+    
+except Exception as e:
+    print(f"\n[ERROR] Error loading Invoice Lines CSV: {e}")
+    import traceback
+    traceback.print_exc()
+    raise
 
-line_items_final_sdf = (invoices_raw_sdf
+# COMMAND ----------
+
+print("\n" + "="*80)
+print("TRANSFORMING INVOICE LINE ITEMS DATA")
+print("="*80)
+
+# Transform invoice lines with actual data from CSV
+line_items_final_sdf = (invoice_lines_raw_sdf
     .select(
+        # Key fields
         col("InvoiceId").cast(LongType()).alias("InvoiceId"),
-        row_number().over(window_spec).alias("InvoiceLineId"),
-        lit(100).alias("UnitPrice"),
-        lit(1).alias("Quantity"),
+        col("InvoiceLineId").cast(LongType()).alias("InvoiceLineId"),
         
-        # Cast TaxPercentage - replace comma with dot
+        # Pricing fields - replace comma with dot for European decimal format
+        regexp_replace(col("UnitPrice"), ",", ".").cast(DoubleType()).alias("UnitPrice"),
+        col("Quantity").cast(LongType()).alias("Quantity"),
+        
+        # Tax fields
         regexp_replace(col("TaxPercentage"), ",", ".").cast(LongType()).alias("TaxPercentage"),
+        regexp_replace(col("TaxTotal"), ",", ".").cast(DoubleType()).alias("TaxTotal"),
         
-        # Calculate tax totals
-        when(regexp_replace(col("TaxPercentage"), ",", ".").cast(LongType()) > 0, 
-            (regexp_replace(col("TaxPercentage"), ",", ".").cast(LongType()) / 100 * 100).cast(LongType())
-        ).otherwise(lit(0)).alias("TaxTotal"),
+        # Total fields
+        regexp_replace(col("TotalTaxExcl"), ",", ".").cast(DoubleType()).alias("TotalTaxExcl"),
+        regexp_replace(col("TotalTaxIncl"), ",", ".").cast(DoubleType()).alias("TotalTaxIncl"),
         
-        lit(100).alias("TotalTaxExcl"),
-        
-        when(regexp_replace(col("TaxPercentage"), ",", ".").cast(LongType()) > 0,
-            (100 + regexp_replace(col("TaxPercentage"), ",", ".").cast(LongType()) / 100 * 100).cast(LongType())
-        ).otherwise(lit(100)).alias("TotalTaxIncl"),
-        
-        # Date fields - use the same parsing method that worked
+        # Date fields - parse the same way as invoices
         to_date(
-            regexp_replace(col("InvoiceDate"), " \\d+:\\d+:\\d+$", ""),
+            regexp_replace(col("StartDate"), " \\d+:\\d+:\\d+$", ""),
             "d/MM/yyyy"
         ).alias("StartDate"),
         
         to_date(
-            regexp_replace(col("InvoiceDate"), " \\d+:\\d+:\\d+$", ""),
+            regexp_replace(col("EndDate"), " \\d+:\\d+:\\d+$", ""),
             "d/MM/yyyy"
         ).alias("EndDate"),
         
-        # Description and product info
-        concat(lit("Item for invoice "), col("InvoiceNumber")).alias("Description"),
-        lit("GENERIC").alias("ProductCode"),
-        lit("GENERAL").alias("ProductGroupCode")
+        # Description and product fields
+        col("Description").alias("Description"),
+        col("ProductCode").alias("ProductCode"),
+        col("ProductGroupCode").alias("ProductGroupCode")
     )
 )
 
 # Repartition for optimal write performance
 line_items_final_sdf = line_items_final_sdf.repartition(200)
 
-print(f"\n[SUCCESS] Generated line items")
+print(f"\n[SUCCESS] Transformed line items from invoice lines CSV")
 print("\n" + "="*80)
-print("SAMPLE LINE ITEMS (First 5 rows)")
+print("SAMPLE TRANSFORMED LINE ITEMS (First 5 rows)")
 print("="*80)
 display(line_items_final_sdf.limit(5))
+
+# Show transformed schema
+print("\n" + "="*80)
+print("TRANSFORMED LINE ITEMS SCHEMA")
+print("="*80)
+for field in line_items_final_sdf.schema.fields:
+    print(f"  {field.name:30s} : {field.dataType}")
 
 # Load line items to target table
 print("\n" + "="*80)
@@ -388,9 +480,10 @@ except Exception as e:
     traceback.print_exc()
     raise
 
-# Unpersist cached dataframe
+# Unpersist cached dataframes
 invoices_raw_sdf.unpersist()
-print("\n[INFO] Cache cleared")
+invoice_lines_raw_sdf.unpersist()
+print("\n[INFO] Caches cleared for both invoices and invoice lines")
 
 # COMMAND ----------
 
@@ -534,11 +627,12 @@ print("11G HISTORICAL INVOICES ETL PIPELINE - FINAL SUMMARY")
 print("="*80)
 
 print(f"\nDATA PROCESSING RESULTS:")
-print(f"  Source file     : COM_20251023_144040_invoices.csv")
-print(f"  Invoices loaded : {invoices_loaded_count:,}")
-print(f"  Line items      : {line_items_loaded_count:,}")
-print(f"  Data quality    : {relationship_check}")
-print(f"  Referential integrity: {integrity_check}")
+print(f"  Invoices source file    : COM_20251023_144040_invoices.csv")
+print(f"  Line items source file  : COM_20251023_144040_invoicelines.csv")
+print(f"  Invoices loaded         : {invoices_loaded_count:,}")
+print(f"  Line items loaded       : {line_items_loaded_count:,}")
+print(f"  Data quality            : {relationship_check}")
+print(f"  Referential integrity   : {integrity_check}")
 
 print(f"\nTARGET TABLES:")
 print(f"  teamblue.findata_sandbox.stg_11g_hist_invoices")
@@ -550,14 +644,14 @@ print(f"  European decimal format: comma to dot conversion")
 print(f"  Data type casting: String to Long/Double")
 print(f"  String cleaning: removed quotes and newlines")
 print(f"  Encoding fix: handled UTF-16 BOM in column names")
-print(f"  Added df_source field")
-print(f"  Generated synthetic line items (1:1 with invoices)")
+print(f"  Added df_source field to invoices")
+print(f"  Loaded REAL invoice line items from dedicated CSV file")
 
 print(f"\nDATA CHARACTERISTICS:")
-print(f"  Date range: {date_stats['min_date']} to {date_stats['max_date']}")
-print(f"  Unique customers: {date_stats['distinct_customers']:,}")
-print(f"  Unique providers: {date_stats['distinct_providers']:,}")
-print(f"  1:1 invoice-to-line-item relationship: {relationship_check}")
+print(f"  Invoices date range : {date_stats['min_date']} to {date_stats['max_date']}")
+print(f"  Unique customers    : {date_stats['distinct_customers']:,}")
+print(f"  Unique providers    : {date_stats['distinct_providers']:,}")
+print(f"  Invoice-to-line-item relationship validation: {relationship_check}")
 
 print(f"\nPIPELINE STATUS: COMPLETED SUCCESSFULLY")
 print("="*80)
