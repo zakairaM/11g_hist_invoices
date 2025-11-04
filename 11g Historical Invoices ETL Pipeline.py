@@ -398,6 +398,9 @@ print("\n" + "="*80)
 print("TRANSFORMING INVOICE LINE ITEMS DATA")
 print("="*80)
 
+# Re-import col function to ensure it's not overwritten by any variable
+from pyspark.sql.functions import col, regexp_replace, to_date, trim, lit
+
 print("\n[INFO] Transforming invoice line items from CSV...")
 print(f"  Available columns: {invoice_lines_raw_sdf.columns}")
 
