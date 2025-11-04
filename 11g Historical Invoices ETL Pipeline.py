@@ -32,10 +32,20 @@ try:
     # Get the first column name (which has encoding issues)
     first_col = invoices_raw_sdf.columns[0]
     
-    # Rename the problematic first column to "InvoiceId"
-    invoices_raw_sdf = invoices_raw_sdf.withColumnRenamed(first_col, "InvoiceId")
-    
-    print(f"[SUCCESS] Renamed problematic first column to 'InvoiceId'")
+    # Check if first column is already "InvoiceId" (ignoring BOM/encoding)
+    # If it looks different due to encoding, we need to handle it carefully
+    if first_col.strip() != "InvoiceId":
+        # Check if "InvoiceId" already exists in other columns
+        if "InvoiceId" in invoices_raw_sdf.columns:
+            # Drop the problematic first column and keep the existing InvoiceId
+            invoices_raw_sdf = invoices_raw_sdf.drop(first_col)
+            print(f"[SUCCESS] Dropped problematic first column '{first_col}', using existing 'InvoiceId' column")
+        else:
+            # Rename the first column
+            invoices_raw_sdf = invoices_raw_sdf.withColumnRenamed(first_col, "InvoiceId")
+            print(f"[SUCCESS] Renamed problematic first column to 'InvoiceId'")
+    else:
+        print(f"[INFO] First column is already 'InvoiceId', no rename needed")
     
     # Now clean the DATA in each column (remove quotes and newlines from values)
     for col_name in invoices_raw_sdf.columns:
@@ -288,10 +298,20 @@ try:
     # Get the first column name (which may have encoding issues)
     first_col = invoice_lines_raw_sdf.columns[0]
     
-    # Rename the problematic first column if needed
-    invoice_lines_raw_sdf = invoice_lines_raw_sdf.withColumnRenamed(first_col, "InvoiceLineId")
-    
-    print(f"[SUCCESS] Renamed problematic first column to 'InvoiceLineId'")
+    # Check if first column is already "InvoiceLineId" (ignoring BOM/encoding)
+    # If it looks different due to encoding, we need to handle it carefully
+    if first_col.strip() != "InvoiceLineId":
+        # Check if "InvoiceLineId" already exists in other columns
+        if "InvoiceLineId" in invoice_lines_raw_sdf.columns:
+            # Drop the problematic first column and keep the existing InvoiceLineId
+            invoice_lines_raw_sdf = invoice_lines_raw_sdf.drop(first_col)
+            print(f"[SUCCESS] Dropped problematic first column '{first_col}', using existing 'InvoiceLineId' column")
+        else:
+            # Rename the first column
+            invoice_lines_raw_sdf = invoice_lines_raw_sdf.withColumnRenamed(first_col, "InvoiceLineId")
+            print(f"[SUCCESS] Renamed problematic first column to 'InvoiceLineId'")
+    else:
+        print(f"[INFO] First column is already 'InvoiceLineId', no rename needed")
     
     # Clean the DATA in each column (remove quotes and newlines from values)
     for col_name in invoice_lines_raw_sdf.columns:
