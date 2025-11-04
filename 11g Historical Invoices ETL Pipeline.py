@@ -41,7 +41,7 @@ try:
     for col_name in invoices_raw_sdf.columns:
         invoices_raw_sdf = invoices_raw_sdf.withColumn(
             col_name,
-            trim(regexp_replace(regexp_replace(col(col_name), '"', ''), '\\n', ''))
+            trim(regexp_replace(regexp_replace(invoices_raw_sdf[col_name], '"', ''), '\\n', ''))
         )
     
     # Cache the cleaned dataframe
@@ -297,7 +297,7 @@ try:
     for col_name in invoice_lines_raw_sdf.columns:
         invoice_lines_raw_sdf = invoice_lines_raw_sdf.withColumn(
             col_name,
-            trim(regexp_replace(regexp_replace(col(col_name), '"', ''), '\\n', ''))
+            trim(regexp_replace(regexp_replace(invoice_lines_raw_sdf[col_name], '"', ''), '\\n', ''))
         )
     
     # Cache the cleaned dataframe
