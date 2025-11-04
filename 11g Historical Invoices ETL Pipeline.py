@@ -141,7 +141,7 @@ invoices_final_sdf = (invoices_raw_sdf
         ).alias("InvoiceDate"),
         
         # Cast TaxPercentage - replace comma with dot for decimal
-        regexp_replace(col("TaxPercentage"), ",", ".").cast(DoubleType()).alias("TaxPercentage"),
+        regexp_replace(col("TaxPercentage"), ",", ".").cast(LongType()).alias("TaxPercentage"),
         
         # Clean string fields
         col("Currency").alias("Currency"),
@@ -276,22 +276,22 @@ line_items_final_sdf = (invoices_raw_sdf
     .select(
         col("InvoiceId").cast(LongType()).alias("InvoiceId"),
         row_number().over(window_spec).alias("InvoiceLineId"),
-        lit("100.00").alias("UnitPrice"),
+        lit(100).alias("UnitPrice"),
         lit(1).alias("Quantity"),
         
         # Cast TaxPercentage - replace comma with dot
-        regexp_replace(col("TaxPercentage"), ",", ".").cast(DoubleType()).alias("TaxPercentage"),
+        regexp_replace(col("TaxPercentage"), ",", ".").cast(LongType()).alias("TaxPercentage"),
         
         # Calculate tax totals
-        when(regexp_replace(col("TaxPercentage"), ",", ".").cast(DoubleType()) > 0, 
-            (regexp_replace(col("TaxPercentage"), ",", ".").cast(DoubleType()) / 100 * 100).cast(DoubleType())
-        ).otherwise(lit(0.0)).alias("TaxTotal"),
+        when(regexp_replace(col("TaxPercentage"), ",", ".").cast(LongType()) > 0, 
+            (regexp_replace(col("TaxPercentage"), ",", ".").cast(LongType()) / 100 * 100).cast(LongType())
+        ).otherwise(lit(0)).alias("TaxTotal"),
         
-        lit(100.0).alias("TotalTaxExcl"),
+        lit(100).alias("TotalTaxExcl"),
         
-        when(regexp_replace(col("TaxPercentage"), ",", ".").cast(DoubleType()) > 0,
-            (100.0 + regexp_replace(col("TaxPercentage"), ",", ".").cast(DoubleType()) / 100 * 100).cast(DoubleType())
-        ).otherwise(lit(100.0)).alias("TotalTaxIncl"),
+        when(regexp_replace(col("TaxPercentage"), ",", ".").cast(LongType()) > 0,
+            (100 + regexp_replace(col("TaxPercentage"), ",", ".").cast(LongType()) / 100 * 100).cast(LongType())
+        ).otherwise(lit(100)).alias("TotalTaxIncl"),
         
         # Date fields - use the same parsing method that worked
         to_date(
