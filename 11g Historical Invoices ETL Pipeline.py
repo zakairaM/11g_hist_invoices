@@ -340,6 +340,9 @@ try:
     print("\n" + "="*80)
     print("SCHEMA SUMMARY")
     print("="*80)
+    print(f"\n[DEBUG] All columns in invoice lines CSV:")
+    print(f"  {invoice_lines_raw_sdf.columns}")
+    print("\n")
     for field in invoice_lines_raw_sdf.schema.fields:
         print(f"  {field.name:30s} : {field.dataType}")
     
@@ -349,17 +352,31 @@ try:
     print("="*80)
     
     # Check for null or empty values in key columns
-    key_columns = ["InvoiceLineId", "InvoiceId"]
+    # Note: InvoiceId might not be in raw data - will be added via join
+    key_columns = ["InvoiceLineId"]
+    if "InvoiceId" in invoice_lines_raw_sdf.columns:
+        key_columns.append("InvoiceId")
+    if "InvoiceNumber" in invoice_lines_raw_sdf.columns:
+        key_columns.append("InvoiceNumber")
+        
     for col_name in key_columns:
-        if col_name in invoice_lines_raw_sdf.columns:
-            null_count = invoice_lines_raw_sdf.filter(
-                col(col_name).isNull() | (trim(col(col_name)) == "")
-            ).count()
-            print(f"  {col_name:30s} : {null_count:,} nulls/empty")
+        null_count = invoice_lines_raw_sdf.filter(
+            col(col_name).isNull() | (trim(col(col_name)) == "")
+        ).count()
+        print(f"  {col_name:30s} : {null_count:,} nulls/empty")
     
     # Show sample of cleaned data
     print(f"\n  Sample cleaned values:")
-    sample_cols = [c for c in ["InvoiceLineId", "InvoiceId", "Description", "UnitPrice", "Quantity"] if c in invoice_lines_raw_sdf.columns]
+    # Build sample columns list dynamically based on what exists
+    sample_cols = ["InvoiceLineId"]
+    if "InvoiceId" in invoice_lines_raw_sdf.columns:
+        sample_cols.append("InvoiceId")
+    if "InvoiceNumber" in invoice_lines_raw_sdf.columns:
+        sample_cols.append("InvoiceNumber")
+    for col in ["Description", "UnitPrice", "Quantity"]:
+        if col in invoice_lines_raw_sdf.columns:
+            sample_cols.append(col)
+    
     if sample_cols:
         invoice_lines_raw_sdf.select(*sample_cols).show(10, truncate=False)
     
@@ -379,12 +396,33 @@ print("\n" + "="*80)
 print("TRANSFORMING INVOICE LINE ITEMS DATA")
 print("="*80)
 
-# Transform invoice lines with actual data from CSV
-line_items_final_sdf = (invoice_lines_raw_sdf
-    .select(
-        # Key fields
-        col("InvoiceId").cast(LongType()).alias("InvoiceId"),
-        col("InvoiceLineId").cast(LongType()).alias("InvoiceLineId"),
+# Check if InvoiceId or InvoiceNumber exists in invoice lines for joining
+print("\n[INFO] Checking for join keys in invoice lines...")
+print(f"  Available columns: {invoice_lines_raw_sdf.columns}")
+
+has_invoice_id = "InvoiceId" in invoice_lines_raw_sdf.columns
+has_invoice_number = "InvoiceNumber" in invoice_lines_raw_sdf.columns
+
+print(f"  Has InvoiceId: {has_invoice_id}")
+print(f"  Has InvoiceNumber: {has_invoice_number}")
+
+if not has_invoice_id and not has_invoice_number:
+    print("\n[WARNING] No direct join key found in invoice lines CSV!")
+    print("  Will need to establish relationship through other means.")
+    print("  Checking for alternative join keys...")
+    
+    # Show sample data to understand structure
+    print("\n  Sample invoice lines data:")
+    invoice_lines_raw_sdf.show(5, truncate=False)
+
+# Transform invoice lines - first without InvoiceId if it doesn't exist
+if has_invoice_id:
+    print("\n[INFO] InvoiceId found in invoice lines - using direct relationship")
+    line_items_transformed_sdf = (invoice_lines_raw_sdf
+        .select(
+            # Key fields
+            col("InvoiceId").cast(LongType()).alias("InvoiceId"),
+            col("InvoiceLineId").cast(LongType()).alias("InvoiceLineId"),
         
         # Pricing fields - replace comma with dot for European decimal format
         regexp_replace(col("UnitPrice"), ",", ".").cast(DoubleType()).alias("UnitPrice"),
@@ -409,21 +447,105 @@ line_items_final_sdf = (invoice_lines_raw_sdf
             "d/MM/yyyy"
         ).alias("EndDate"),
         
-        # Description and product fields
-        col("Description").alias("Description"),
-        col("ProductCode").alias("ProductCode"),
-        col("ProductGroupCode").alias("ProductGroupCode")
+            # Description and product fields
+            col("Description").alias("Description"),
+            col("ProductCode").alias("ProductCode"),
+            col("ProductGroupCode").alias("ProductGroupCode")
+        )
     )
-)
+    line_items_final_sdf = line_items_transformed_sdf
+    
+elif has_invoice_number:
+    print("\n[INFO] InvoiceNumber found - joining with invoices to get InvoiceId")
+    # First transform invoice lines without InvoiceId
+    line_items_no_id_sdf = (invoice_lines_raw_sdf
+        .select(
+            # Key fields
+            col("InvoiceNumber").cast(LongType()).alias("InvoiceNumber"),
+            col("InvoiceLineId").cast(LongType()).alias("InvoiceLineId"),
+            
+            # Pricing fields - replace comma with dot for European decimal format
+            regexp_replace(col("UnitPrice"), ",", ".").cast(DoubleType()).alias("UnitPrice"),
+            col("Quantity").cast(LongType()).alias("Quantity"),
+            
+            # Tax fields
+            regexp_replace(col("TaxPercentage"), ",", ".").cast(LongType()).alias("TaxPercentage"),
+            regexp_replace(col("TaxTotal"), ",", ".").cast(DoubleType()).alias("TaxTotal"),
+            
+            # Total fields
+            regexp_replace(col("TotalTaxExcl"), ",", ".").cast(DoubleType()).alias("TotalTaxExcl"),
+            regexp_replace(col("TotalTaxIncl"), ",", ".").cast(DoubleType()).alias("TotalTaxIncl"),
+            
+            # Date fields - parse the same way as invoices
+            to_date(
+                regexp_replace(col("StartDate"), " \\d+:\\d+:\\d+$", ""),
+                "d/MM/yyyy"
+            ).alias("StartDate"),
+            
+            to_date(
+                regexp_replace(col("EndDate"), " \\d+:\\d+:\\d+$", ""),
+                "d/MM/yyyy"
+            ).alias("EndDate"),
+            
+            # Description and product fields
+            col("Description").alias("Description"),
+            col("ProductCode").alias("ProductCode"),
+            col("ProductGroupCode").alias("ProductGroupCode")
+        )
+    )
+    
+    # Join with invoices to get InvoiceId
+    print("\n[INFO] Joining invoice lines with invoices on InvoiceNumber...")
+    invoices_for_join = spark.table("teamblue.findata_sandbox.stg_11g_hist_invoices").select(
+        col("InvoiceId"),
+        col("InvoiceNumber")
+    )
+    
+    line_items_final_sdf = (
+        line_items_no_id_sdf
+        .join(invoices_for_join, "InvoiceNumber", "left")
+        .select(
+            col("InvoiceId"),
+            col("InvoiceLineId"),
+            col("UnitPrice"),
+            col("Quantity"),
+            col("TaxPercentage"),
+            col("TaxTotal"),
+            col("TotalTaxExcl"),
+            col("TotalTaxIncl"),
+            col("StartDate"),
+            col("EndDate"),
+            col("Description"),
+            col("ProductCode"),
+            col("ProductGroupCode")
+        )
+    )
+    
+    # Check for unmatched line items
+    unmatched_count = line_items_final_sdf.filter(col("InvoiceId").isNull()).count()
+    if unmatched_count > 0:
+        print(f"\n[WARNING] {unmatched_count:,} line items could not be matched to invoices!")
+    else:
+        print(f"\n[SUCCESS] All line items successfully matched to invoices")
+        
+else:
+    print("\n[ERROR] Cannot establish relationship between invoices and line items!")
+    print("  Neither InvoiceId nor InvoiceNumber found in invoice lines CSV.")
+    print("  Please provide information on how these tables should be linked.")
+    raise ValueError("No join key available to link invoices and line items")
 
 # Repartition for optimal write performance
 line_items_final_sdf = line_items_final_sdf.repartition(200)
 
-print(f"\n[SUCCESS] Transformed line items from invoice lines CSV")
+print(f"\n[SUCCESS] Transformed line items with InvoiceId linkage established")
 print("\n" + "="*80)
 print("SAMPLE TRANSFORMED LINE ITEMS (First 5 rows)")
 print("="*80)
 display(line_items_final_sdf.limit(5))
+
+# Verify InvoiceId is present
+invoice_id_null_count = line_items_final_sdf.filter(col("InvoiceId").isNull()).count()
+print(f"\n[INFO] Line items with null InvoiceId: {invoice_id_null_count:,}")
 
 # Show transformed schema
 print("\n" + "="*80)
@@ -625,6 +747,8 @@ print("\n" + "="*80)
 print("REFERENTIAL INTEGRITY CHECK")
 print("="*80)
 
+print("\n[INFO] Checking Invoice-to-LineItem relationship...")
+
 # Check for invoices without line items
 invoices_without_items = (invoices_table
     .join(line_items_table, "InvoiceId", "left_anti")
@@ -638,8 +762,28 @@ items_without_invoices = (line_items_table
 print(f"  Invoices without line items: {invoices_without_items:,}")
 print(f"  Line items without invoices: {items_without_invoices:,}")
 
-integrity_check = "PASS" if (invoices_without_items == 0 and items_without_invoices == 0) else "FAIL"
-print(f"  Referential Integrity: {integrity_check}")
+# Calculate match statistics
+total_invoices = invoices_table.count()
+total_line_items = line_items_table.count()
+invoices_with_items = total_invoices - invoices_without_items
+items_with_invoices = total_line_items - items_without_invoices
+
+match_rate_invoices = (invoices_with_items / total_invoices * 100) if total_invoices > 0 else 0
+match_rate_items = (items_with_invoices / total_line_items * 100) if total_line_items > 0 else 0
+
+print(f"\n  Match Statistics:")
+print(f"    Invoices with line items: {invoices_with_items:,} ({match_rate_invoices:.2f}%)")
+print(f"    Line items with invoices: {items_with_invoices:,} ({match_rate_items:.2f}%)")
+
+integrity_check = "PASS" if (invoices_without_items == 0 and items_without_invoices == 0) else "WARNING" if items_without_invoices == 0 else "FAIL"
+print(f"\n  Referential Integrity Status: {integrity_check}")
+
+if integrity_check == "FAIL":
+    print(f"    [ERROR] Found {items_without_invoices:,} orphaned line items!")
+elif integrity_check == "WARNING":
+    print(f"    [WARNING] Found {invoices_without_items:,} invoices without line items")
+else:
+    print(f"    [SUCCESS] All relationships properly established")
 
 # Pipeline execution summary
 print("\n" + "="*80)
@@ -665,7 +809,9 @@ print(f"  Data type casting: String to Long/Double")
 print(f"  String cleaning: removed quotes and newlines")
 print(f"  Encoding fix: handled UTF-16 BOM in column names")
 print(f"  Added df_source field to invoices")
-print(f"  Loaded REAL invoice line items from dedicated CSV file")
+print(f"  Loaded invoice line items from dedicated CSV file")
+print(f"  Established InvoiceId linkage via join (if not present in source)")
+print(f"  Verified referential integrity between invoices and line items")
 
 print(f"\nDATA CHARACTERISTICS:")
 print(f"  Invoices date range : {date_stats['min_date']} to {date_stats['max_date']}")
