@@ -373,9 +373,9 @@ try:
         sample_cols.append("InvoiceId")
     if "InvoiceNumber" in invoice_lines_raw_sdf.columns:
         sample_cols.append("InvoiceNumber")
-    for col in ["Description", "UnitPrice", "Quantity"]:
-        if col in invoice_lines_raw_sdf.columns:
-            sample_cols.append(col)
+    for col_name in ["Description", "UnitPrice", "Quantity"]:
+        if col_name in invoice_lines_raw_sdf.columns:
+            sample_cols.append(col_name)
     
     if sample_cols:
         invoice_lines_raw_sdf.select(*sample_cols).show(10, truncate=False)
@@ -751,7 +751,20 @@ for col_name in invoice_lines_raw_sdf.columns:
 if join_key:
     print(f"  Found join key: '{join_key}' (will use as {join_type})")
 else:
-    print(f"  No join key found - will load from existing invoices dataframe")
+    print(f"  No direct join key found - checking if InvoiceId can be extracted from InvoiceLineId...")
+    
+    # Check if InvoiceLineId contains InvoiceId as a pattern
+    # Common patterns: "InvoiceId-LineId" or "InvoiceIdLineId"
+    sample_line_ids = invoice_lines_raw_sdf.select("InvoiceLineId").limit(5).collect()
+    print(f"\n  Sample InvoiceLineId values:")
+    for row in sample_line_ids:
+        print(f"    {row['InvoiceLineId']}")
+    
+    # Try to detect pattern: typically InvoiceLineId might be like "12345-1" where 12345 is InvoiceId
+    # We'll check if values contain a separator or can be parsed
+    # For now, we'll add a column that extracts InvoiceId from InvoiceLineId
+    join_type = "InvoiceId_from_LineId"
+    print(f"\n  Will attempt to extract InvoiceId from InvoiceLineId using common patterns")
 
 # Transform invoice lines with standard fields
 print("\n[INFO] Transforming invoice line items...")
@@ -803,6 +816,87 @@ if join_key and join_type == "InvoiceId":
             col("ProductGroupCode").alias("ProductGroupCode")
         )
     )
+elif join_type == "InvoiceId_from_LineId":
+    # Extract InvoiceId from InvoiceLineId pattern
+    print("\n[INFO] Extracting InvoiceId from InvoiceLineId...")
+    
+    # Check sample values to determine pattern
+    sample_line_id = invoice_lines_raw_sdf.select("InvoiceLineId").first()["InvoiceLineId"]
+    
+    # Try different extraction patterns
+    # Pattern 1: "InvoiceId-LineNum" or "InvoiceId_LineNum" (most common)
+    # Pattern 2: First N digits are InvoiceId (if no separator)
+    
+    # We'll use a flexible approach: split on common separators, take first part
+    # If no separator, we'll try substring_index or split based on the pattern
+    
+    print(f"  Attempting multiple extraction patterns...")
+    line_items_with_extracted_id = (invoice_lines_raw_sdf
+        .withColumn("InvoiceId_raw", 
+            # Try splitting on '-' first
+            when(col("InvoiceLineId").contains("-"),
+                 split(col("InvoiceLineId"), "-").getItem(0)
+            )
+            # Try splitting on '_' 
+            .when(col("InvoiceLineId").contains("_"),
+                  split(col("InvoiceLineId"), "_").getItem(0)
+            )
+            # If no separator, check if it's a compound number (e.g., 1234567 where first 5 digits are InvoiceId)
+            # For now, we'll use regex to extract leading digits followed by non-digits
+            .otherwise(
+                regexp_extract(col("InvoiceLineId"), "^(\\d+)", 1)
+            )
+        )
+    )
+    
+    # Show some examples of the extraction
+    print(f"\n  Sample InvoiceId extraction:")
+    line_items_with_extracted_id.select("InvoiceLineId", "InvoiceId_raw").show(10, truncate=False)
+    
+    # Now transform with the extracted InvoiceId
+    line_items_final_sdf = (line_items_with_extracted_id
+        .select(
+            col("InvoiceId_raw").cast(LongType()).alias("InvoiceId"),
+            col("InvoiceLineId").cast(LongType()).alias("InvoiceLineId"),
+            regexp_replace(col("UnitPrice"), ",", ".").cast(DoubleType()).alias("UnitPrice"),
+            regexp_replace(col("Quantity"), ",", ".").cast(DoubleType()).alias("Quantity"),
+            regexp_replace(col("TaxPercentage"), ",", ".").cast(DoubleType()).alias("TaxPercentage"),
+            regexp_replace(col("TaxTotal"), ",", ".").cast(DoubleType()).alias("TaxTotal"),
+            regexp_replace(col("TotalTaxExcl"), ",", ".").cast(DoubleType()).alias("TotalTaxExcl"),
+            regexp_replace(col("TotalTaxIncl"), ",", ".").cast(DoubleType()).alias("TotalTaxIncl"),
+            to_date(regexp_replace(col("StartDate"), " \\d+:\\d+:\\d+$", ""), "d/MM/yyyy").alias("StartDate"),
+            to_date(regexp_replace(col("EndDate"), " \\d+:\\d+:\\d+$", ""), "d/MM/yyyy").alias("EndDate"),
+            col("Description").alias("Description"),
+            col("ProductCode").alias("ProductCode"),
+            col("ProductGroupCode").alias("ProductGroupCode")
+        )
+    )
+    
+    # Verify extraction quality
+    null_invoice_ids = line_items_final_sdf.filter(col("InvoiceId").isNull()).count()
+    total_lines = line_items_final_sdf.count()
+    print(f"\n  InvoiceId extraction results:")
+    print(f"    Successfully extracted: {total_lines - null_invoice_ids:,} / {total_lines:,}")
+    print(f"    Failed to extract: {null_invoice_ids:,}")
+    
+    # Verify that extracted InvoiceIds exist in invoices table
+    valid_invoice_ids = invoices_final_sdf.select("InvoiceId").distinct()
+    matched_count = line_items_final_sdf.join(valid_invoice_ids, "InvoiceId", "inner").count()
+    match_rate = (matched_count / total_lines * 100) if total_lines > 0 else 0
+    print(f"    Match rate with invoices table: {matched_count:,} / {total_lines:,} ({match_rate:.2f}%)")
+    
+    if match_rate < 90:
+        print(f"\n  [WARNING] Low match rate detected! Only {match_rate:.2f}% of line items matched with invoices")
+        print(f"  This may indicate an incorrect extraction pattern")
+        
+        # Show sample of unmatched InvoiceIds
+        unmatched_ids = (line_items_final_sdf
+            .join(valid_invoice_ids, "InvoiceId", "left_anti")
+            .select("InvoiceId", "InvoiceLineId")
+            .distinct()
+            .limit(10))
+        print(f"\n  Sample of unmatched InvoiceIds:")
+        unmatched_ids.show(truncate=False)
 elif join_key and join_type == "InvoiceNumber":
     # Use InvoiceNumber to join with invoices table
     print("\n[INFO] Joining with invoices table on InvoiceNumber...")
