@@ -393,17 +393,42 @@ except Exception as e:
 # COMMAND ----------
 
 print("\n" + "="*80)
-print("DIAGNOSTIC: INVESTIGATING INVOICENUMBER MISMATCH")
+print("DIAGNOSTIC: INVESTIGATING JOIN KEY AND MISMATCHES")
 print("="*80)
 
-# Check what columns exist in both files
+# Check what columns exist in both files with detailed inspection
 print("\n[INFO] Columns in invoices CSV:")
 print(f"  {invoices_raw_sdf.columns}")
+for i, col_name in enumerate(invoices_raw_sdf.columns):
+    print(f"    [{i}] '{col_name}' | len={len(col_name)} | repr={repr(col_name)}")
 
 print("\n[INFO] Columns in invoice lines CSV:")
 print(f"  {invoice_lines_raw_sdf.columns}")
+for i, col_name in enumerate(invoice_lines_raw_sdf.columns):
+    print(f"    [{i}] '{col_name}' | len={len(col_name)} | repr={repr(col_name)}")
 
-# Detect the join key that will be used
+# Check specifically for InvoiceId column
+print("\n[CRITICAL] Checking for InvoiceId column in invoice lines:")
+has_invoice_id = "InvoiceId" in invoice_lines_raw_sdf.columns
+print(f"  'InvoiceId' in columns (exact match): {has_invoice_id}")
+
+# Check for variations
+invoice_id_variations = [col for col in invoice_lines_raw_sdf.columns if "invoiceid" in col.lower()]
+print(f"  Columns containing 'invoiceid' (case-insensitive): {invoice_id_variations}")
+
+invoice_number_variations = [col for col in invoice_lines_raw_sdf.columns if "invoicenumber" in col.lower()]
+print(f"  Columns containing 'invoicenumber' (case-insensitive): {invoice_number_variations}")
+
+# Show sample data to see what's in the columns
+print("\n[INFO] Sample data from invoice lines CSV (first 3 rows):")
+if invoice_id_variations:
+    print(f"  Showing InvoiceId-related columns: {invoice_id_variations}")
+    sample_cols = ["InvoiceLineId"] + invoice_id_variations
+    if invoice_number_variations:
+        sample_cols.extend(invoice_number_variations)
+    invoice_lines_raw_sdf.select(*[col for col in sample_cols if col in invoice_lines_raw_sdf.columns]).show(3, truncate=False)
+
+# Detect the join key that will be used (same logic as main code)
 join_key = None
 join_type = None
 for col_name in invoice_lines_raw_sdf.columns:
@@ -417,9 +442,113 @@ for col_name in invoice_lines_raw_sdf.columns:
         join_type = "InvoiceNumber"
         break
 
-print(f"\n[INFO] Join key detected: '{join_key}' (type: {join_type})")
+print(f"\n[INFO] Join key detected by main code logic: '{join_key}' (type: {join_type})")
 
-if join_key and join_type == "InvoiceNumber":
+if join_type == "InvoiceNumber" and invoice_id_variations:
+    print(f"\n[WARNING] Code will join on InvoiceNumber but InvoiceId exists in the data!")
+    print(f"  This is likely the cause of the missing invoice_id problem!")
+elif join_type == "InvoiceId":
+    print(f"\n[SUCCESS] Code will correctly join on InvoiceId")
+
+# Add diagnostic analysis for InvoiceId join
+if join_key and join_type == "InvoiceId":
+    print("\n" + "="*80)
+    print("ANALYZING INVOICEID JOIN")
+    print("="*80)
+    
+    # Analyze InvoiceId values in both files
+    print("\n[INFO] Checking InvoiceId data quality...")
+    
+    # Check for NULL/empty values in invoices
+    inv_nulls = invoices_raw_sdf.filter(
+        col("InvoiceId").isNull() | (trim(col("InvoiceId")) == "")
+    ).count()
+    print(f"  Invoices with NULL/empty InvoiceId: {inv_nulls:,}")
+    
+    # Check for NULL/empty values in invoice lines
+    lines_nulls = invoice_lines_raw_sdf.filter(
+        col(join_key).isNull() | (trim(col(join_key)) == "")
+    ).count()
+    print(f"  Line items with NULL/empty InvoiceId: {lines_nulls:,}")
+    
+    # Get distinct InvoiceId counts
+    distinct_inv_ids = invoices_raw_sdf.select(
+        col("InvoiceId").cast(LongType()).alias("InvoiceId")
+    ).filter(col("InvoiceId").isNotNull()).distinct().count()
+    
+    distinct_line_inv_ids = invoice_lines_raw_sdf.select(
+        col(join_key).cast(LongType()).alias("InvoiceId")
+    ).filter(col("InvoiceId").isNotNull()).distinct().count()
+    
+    print(f"\n[INFO] Distinct InvoiceIds:")
+    print(f"  In invoices.csv     : {distinct_inv_ids:,}")
+    print(f"  In invoicelines.csv : {distinct_line_inv_ids:,}")
+    
+    # Check for line items with InvoiceIds that don't exist in invoices
+    print("\n[INFO] Checking for orphaned line items...")
+    
+    valid_invoice_ids = (invoices_raw_sdf
+        .select(col("InvoiceId").cast(LongType()).alias("InvoiceId"))
+        .filter(col("InvoiceId").isNotNull())
+        .distinct()
+    )
+    
+    line_item_ids = (invoice_lines_raw_sdf
+        .select(col(join_key).cast(LongType()).alias("InvoiceId"))
+        .filter(col("InvoiceId").isNotNull())
+        .distinct()
+    )
+    
+    orphaned_ids = line_item_ids.join(valid_invoice_ids, "InvoiceId", "left_anti")
+    orphaned_count = orphaned_ids.count()
+    
+    print(f"  Line items with InvoiceIds not in invoices table: {orphaned_count:,}")
+    
+    if orphaned_count > 0:
+        print(f"\n  Sample of orphaned InvoiceIds:")
+        orphaned_ids.orderBy("InvoiceId").show(20, truncate=False)
+        
+        # Count affected line items
+        orphaned_list = [row.InvoiceId for row in orphaned_ids.collect()]
+        affected_lines = invoice_lines_raw_sdf.filter(
+            col(join_key).cast(LongType()).isin(orphaned_list)
+        ).count()
+        print(f"\n  Total line items affected: {affected_lines:,}")
+        
+        # Show sample
+        print(f"\n  Sample of affected line items:")
+        invoice_lines_raw_sdf.filter(
+            col(join_key).cast(LongType()).isin(orphaned_list[:10])
+        ).select(
+            col(join_key).alias("InvoiceId"),
+            "InvoiceLineId",
+            "Description"
+        ).show(10, truncate=False)
+    
+    # Check for invoices without line items
+    print("\n[INFO] Checking for invoices without line items...")
+    
+    invoices_without_lines = valid_invoice_ids.join(line_item_ids, "InvoiceId", "left_anti")
+    invoices_no_lines_count = invoices_without_lines.count()
+    
+    print(f"  Invoices without line items: {invoices_no_lines_count:,}")
+    
+    if invoices_no_lines_count > 0:
+        print(f"\n  Sample of InvoiceIds without line items:")
+        invoices_without_lines.orderBy("InvoiceId").show(20, truncate=False)
+    
+    print("\n" + "="*80)
+    print("INVOICEID JOIN ANALYSIS SUMMARY")
+    print("="*80)
+    print(f"\n  Join key: InvoiceId (CORRECT)")
+    print(f"  Distinct InvoiceIds in invoices  : {distinct_inv_ids:,}")
+    print(f"  Distinct InvoiceIds in line items: {distinct_line_inv_ids:,}")
+    print(f"  Orphaned line items              : {orphaned_count:,}")
+    print(f"  Invoices without line items      : {invoices_no_lines_count:,}")
+    print(f"  NULL/empty in invoices           : {inv_nulls:,}")
+    print(f"  NULL/empty in line items         : {lines_nulls:,}")
+
+elif join_key and join_type == "InvoiceNumber":
     print("\n" + "="*80)
     print("ANALYZING INVOICENUMBER MISMATCHES")
     print("="*80)
