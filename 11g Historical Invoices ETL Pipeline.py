@@ -288,10 +288,19 @@ try:
     # Get the first column name (which may have encoding issues)
     first_col = invoice_lines_raw_sdf.columns[0]
     
-    # Rename the problematic first column if needed
-    invoice_lines_raw_sdf = invoice_lines_raw_sdf.withColumnRenamed(first_col, "InvoiceLineId")
-    
-    print(f"[SUCCESS] Renamed problematic first column to 'InvoiceLineId'")
+    # Only rename the first column if it's not already "InvoiceLineId" (to avoid duplicates)
+    if first_col != "InvoiceLineId":
+        # Check if there's already an InvoiceLineId column
+        if "InvoiceLineId" in invoice_lines_raw_sdf.columns:
+            # Drop the problematic first column if InvoiceLineId already exists
+            invoice_lines_raw_sdf = invoice_lines_raw_sdf.drop(first_col)
+            print(f"[SUCCESS] Dropped problematic first column '{first_col}' (InvoiceLineId already exists)")
+        else:
+            # Rename if InvoiceLineId doesn't exist yet
+            invoice_lines_raw_sdf = invoice_lines_raw_sdf.withColumnRenamed(first_col, "InvoiceLineId")
+            print(f"[SUCCESS] Renamed problematic first column '{first_col}' to 'InvoiceLineId'")
+    else:
+        print(f"[INFO] First column is already 'InvoiceLineId', no rename needed")
     
     # Clean the DATA in each column (remove quotes and newlines from values)
     for col_name in invoice_lines_raw_sdf.columns:
