@@ -163,10 +163,7 @@ invoices_final_sdf = (invoices_raw_sdf
         col("BillingCity").alias("BillingCity"),
         col("BillingCountryCode").alias("BillingCountryCode"),
         col("IsCreditNote").cast(LongType()).alias("IsCreditNote"),
-        col("OGM").alias("OGM"),
-        
-        # Add df_source field
-        lit("COM_20251023_144040").alias("df_source")
+        col("OGM").alias("OGM")
     )
 )
 
@@ -777,7 +774,6 @@ print(f"  European decimal format: comma to dot conversion")
 print(f"  Data type casting: String to Long/Double")
 print(f"  String cleaning: removed quotes and newlines")
 print(f"  Encoding fix: handled UTF-16 BOM in column names")
-print(f"  Added df_source field to invoices")
 print(f"  Loaded invoice line items directly from CSV (InvoiceId already present)")
 print(f"  Verified referential integrity between invoices and line items")
 
