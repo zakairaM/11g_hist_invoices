@@ -312,6 +312,28 @@ try:
     else:
         print(f"[INFO] First column is already 'InvoiceId', no rename needed")
     
+    # Check for duplicate column names and deduplicate if necessary
+    all_cols = invoice_lines_raw_sdf.columns
+    col_counts = {}
+    for col_name in all_cols:
+        col_counts[col_name] = col_counts.get(col_name, 0) + 1
+    
+    # If there are duplicates, keep only the first occurrence of each column
+    if any(count > 1 for count in col_counts.values()):
+        print(f"[WARNING] Found duplicate columns: {[col for col, count in col_counts.items() if count > 1]}")
+        seen_cols = set()
+        unique_cols = []
+        for col_name in all_cols:
+            if col_name not in seen_cols:
+                unique_cols.append(col_name)
+                seen_cols.add(col_name)
+            else:
+                print(f"[INFO] Dropping duplicate column: {col_name}")
+        
+        # Select only unique columns
+        invoice_lines_raw_sdf = invoice_lines_raw_sdf.select(*unique_cols)
+        print(f"[SUCCESS] Deduplicated columns, now have {len(unique_cols)} unique columns")
+    
     # Clean the DATA in each column (remove quotes and newlines from values)
     for col_name in invoice_lines_raw_sdf.columns:
         invoice_lines_raw_sdf = invoice_lines_raw_sdf.withColumn(
