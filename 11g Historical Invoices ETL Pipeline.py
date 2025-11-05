@@ -198,11 +198,6 @@ print("LOADING INVOICE DATA TO TARGET TABLE")
 print("="*80)
 
 try:
-    # Drop the table first to ensure clean schema without df_source column
-    print("\n[INFO] Dropping existing table to remove old schema...")
-    spark.sql("DROP TABLE IF EXISTS teamblue.findata_sandbox.stg_11g_hist_invoices")
-    print("  [SUCCESS] Table dropped successfully")
-    
     print("\n[INFO] Writing data to table...")
     print("  Target: teamblue.findata_sandbox.stg_11g_hist_invoices")
     print("  Mode: overwrite")
@@ -531,11 +526,6 @@ print("LOADING LINE ITEMS DATA")
 print("="*80)
 
 try:
-    # Drop the table first to ensure clean schema without df_source column
-    print("\n[INFO] Dropping existing table to remove old schema...")
-    spark.sql("DROP TABLE IF EXISTS teamblue.findata_sandbox.stg_11g_hist_invoice_items")
-    print("  [SUCCESS] Table dropped successfully")
-    
     print("\n[INFO] Writing line items to table...")
     print("  Target: teamblue.findata_sandbox.stg_11g_hist_invoice_items")
     print("  Mode: overwrite")
