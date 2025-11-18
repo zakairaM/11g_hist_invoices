@@ -11,8 +11,8 @@ CREATE OR REPLACE VIEW teamblue.dwh.v_deferred_invoices AS
 SELECT
     -- Geographic and organizational dimensions
     geo.REGION_NAME as region,
-    org.ENTITY_NAME as entity,
-    org.SUB_ENTITY_NAME as sub_entity,
+    CAST(NULL AS STRING) as entity,  -- FK_LEGAL_ENTITY not found, needs adjustment
+    CAST(NULL AS STRING) as sub_entity,  -- FK_LEGAL_ENTITY not found, needs adjustment
     
     -- Invoice classification
     inv_type.INVOICE_TYPE_NAME as doc_type,
@@ -26,7 +26,7 @@ SELECT
     fi.PK_INVOICES as internal_id,
     
     -- Customer information
-    cust.CUSTOMER_CODE as customer_id,
+    cust.BK_CUSTOMER_CODE as customer_id,
     cust.CUSTOMER_NAME as billing_system_customer_id,
     
     -- Brand information
@@ -111,13 +111,14 @@ FROM
     LEFT JOIN teamblue.dwh.d_customers cust
         ON fi.FK_CUSTOMERS = cust.PK_CUSTOMERS
     
-    -- Geography dimension (through customers)
+    -- Geography dimension (directly from fact table)
     LEFT JOIN teamblue.dwh.d_geography geo
-        ON cust.FK_GEOGRAPHY_CUSTOMER = geo.PK_GEOGRAPHY
+        ON fi.FK_GEOGRAPHY_CUSTOMER = geo.PK_GEOGRAPHY
     
-    -- Organization/Legal Entity dimension (through customers)
-    LEFT JOIN teamblue.dwh.d_legal_entity org
-        ON cust.FK_LEGAL_ENTITY = org.PK_LEGAL_ENTITY
+    -- Organization/Legal Entity dimension (if exists in your schema)
+    -- Note: FK_LEGAL_ENTITY was not found in d_customers, you may need to adjust this join
+    -- LEFT JOIN teamblue.dwh.d_legal_entity org
+    --     ON cust.FK_LEGAL_ENTITY = org.PK_LEGAL_ENTITY
     
     -- Product dimensions
     LEFT JOIN teamblue.dwh.d_products prod
@@ -150,9 +151,9 @@ FROM
     LEFT JOIN teamblue.dwh.d_subscriptions subs
         ON fi.FK_SUBSCRIPTIONS = subs.PK_SUBSCRIPTIONS
     
-    -- Business segment dimension
+    -- Business segment dimension (from fact table)
     LEFT JOIN teamblue.dwh.d_business_segment bus_seg
-        ON cust.FK_BUSINESS_SEGMENT = bus_seg.PK_BUSINESS_SEGMENT
+        ON fi.FK_BUSINESS_SEGMENT = bus_seg.PK_BUSINESS_SEGMENT
 
 WHERE
     -- Filter for deferred invoices only (accrual date in the future)
