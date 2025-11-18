@@ -38,15 +38,15 @@ SELECT
     fi.EXCHANGE_RATE as exchange_rate_to_eur,
     
     -- Date dimensions
-    d_invoice.DATE_VALUE as transaction_date,
-    d_invoice.DATE_VALUE as invoice_date,
-    d_order.DATE_VALUE as due_date,
-    d_start.DATE_VALUE as start_date,
-    d_end.DATE_VALUE as end_date,
-    d_accrued.DATE_VALUE as accrual_date,
-    d_accrued_start.DATE_VALUE as accrued_start_date,
-    d_accrued_end.DATE_VALUE as accrued_end_date,
-    d_renewal.DATE_VALUE as renewal_date,
+    d_invoice.BK_DATE as transaction_date,
+    d_invoice.BK_DATE as invoice_date,
+    d_order.BK_DATE as due_date,
+    d_start.BK_DATE as start_date,
+    d_end.BK_DATE as end_date,
+    d_accrued.BK_DATE as accrual_date,
+    d_accrued_start.BK_DATE as accrued_start_date,
+    d_accrued_end.BK_DATE as accrued_end_date,
+    d_renewal.BK_DATE as renewal_date,
     
     -- Product and subscription information
     prod.PRODUCT_NAME as terms,
@@ -73,7 +73,7 @@ SELECT
     
     -- Flags for deferred revenue logic
     CASE 
-        WHEN d_accrued.DATE_VALUE > CURRENT_DATE() THEN 1 
+        WHEN d_accrued.BK_DATE > CURRENT_DATE() THEN 1 
         ELSE 0 
     END as is_deferred,
     
@@ -152,7 +152,7 @@ FROM
 
 WHERE
     -- Filter for deferred invoices only (accrual date in the future)
-    d_accrued.DATE_VALUE > CURRENT_DATE()
+    d_accrued.BK_DATE > CURRENT_DATE()
     
     -- Optionally, you may want to include additional filters:
     -- AND inv_type.INVOICE_TYPE_NAME NOT IN ('Credit Note', 'Refund')
