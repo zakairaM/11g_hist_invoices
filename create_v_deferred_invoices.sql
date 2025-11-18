@@ -34,8 +34,8 @@ SELECT
     
     -- Currency and exchange rates
     curr.BK_CURRENCY_CODE as currency_code,
-    fi.EXCHANGE_RATE as exchange_rate,
-    fi.EXCHANGE_RATE as exchange_rate_to_eur,
+    CAST(1.0 AS DOUBLE) as exchange_rate,  -- EXCHANGE_RATE column doesn't exist in f_invoices
+    CAST(1.0 AS DOUBLE) as exchange_rate_to_eur,  -- EXCHANGE_RATE column doesn't exist in f_invoices
     
     -- Date dimensions
     d_invoice.BK_DATE as transaction_date,
