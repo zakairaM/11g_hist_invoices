@@ -126,10 +126,9 @@ FROM
     LEFT JOIN teamblue.dwh.d_product_segment prod_seg
         ON fi.FK_PRODUCT_SEGMENT = prod_seg.PK_PRODUCT_SEGMENT
     
-    -- Brand dimension (through product segment or direct from fact table)
+    -- Brand dimension (through product segment)
     LEFT JOIN teamblue.dwh.d_budget_brand brand
         ON prod_seg.BK_BUDGET_BRAND_CODE = brand.BK_BUDGET_BRAND_CODE
-        OR (fi.FK_BUDGET_BRAND IS NOT NULL AND fi.FK_BUDGET_BRAND = brand.PK_BUDGET_BRAND)
     
     -- Currency dimension
     LEFT JOIN teamblue.dwh.d_currency curr
