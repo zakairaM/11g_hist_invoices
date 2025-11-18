@@ -1,5 +1,5 @@
 -- ============================================================================
--- View: dwh.v_deferred_invoices
+-- View: teamblue.dwh.v_deferred_invoices
 -- ============================================================================
 -- Purpose: Create a view representing deferred invoices from the dwh dimensional model
 -- Definition: Deferred invoices are those where the accrual date (FK_DATE_ACCRUED) 
@@ -7,7 +7,7 @@
 -- Structure: Matches teamblue.silver.deferred_revenue for comparison
 -- ============================================================================
 
-CREATE OR REPLACE VIEW dwh.v_deferred_invoices AS
+CREATE OR REPLACE VIEW teamblue.dwh.v_deferred_invoices AS
 SELECT
     -- Geographic and organizational dimensions
     geo.REGION_NAME as region,
@@ -83,75 +83,75 @@ SELECT
     END as is_non_accrued_due_to_zero_mrr
 
 FROM 
-    dwh.f_invoices fi
+    teamblue.dwh.f_invoices fi
     
     -- Join with invoices_accrued fact table
-    LEFT JOIN dwh.f_invoices_accrued fia
+    LEFT JOIN teamblue.dwh.f_invoices_accrued fia
         ON fi.PK_INVOICES = fia.PK_INVOICES
     
     -- Date dimensions
-    LEFT JOIN dwh.d_date d_invoice
+    LEFT JOIN teamblue.dwh.d_date d_invoice
         ON fi.FK_DATE_INVOICE = d_invoice.PK_DATE
-    LEFT JOIN dwh.d_date d_order
+    LEFT JOIN teamblue.dwh.d_date d_order
         ON fi.FK_DATE_ORDER = d_order.PK_DATE
-    LEFT JOIN dwh.d_date d_start
+    LEFT JOIN teamblue.dwh.d_date d_start
         ON fi.FK_DATE_START = d_start.PK_DATE
-    LEFT JOIN dwh.d_date d_end
+    LEFT JOIN teamblue.dwh.d_date d_end
         ON fi.FK_DATE_END = d_end.PK_DATE
-    LEFT JOIN dwh.d_date d_accrued
+    LEFT JOIN teamblue.dwh.d_date d_accrued
         ON fia.FK_DATE_ACCRUED = d_accrued.PK_DATE
-    LEFT JOIN dwh.d_date d_accrued_start
+    LEFT JOIN teamblue.dwh.d_date d_accrued_start
         ON fi.FK_DATE_ACCRUED_START = d_accrued_start.PK_DATE
-    LEFT JOIN dwh.d_date d_accrued_end
+    LEFT JOIN teamblue.dwh.d_date d_accrued_end
         ON fi.FK_DATE_ACCRUED_END = d_accrued_end.PK_DATE
-    LEFT JOIN dwh.d_date d_renewal
+    LEFT JOIN teamblue.dwh.d_date d_renewal
         ON fi.FK_DATE_UP_FOR_RENEWAL = d_renewal.PK_DATE
     
     -- Customer dimensions
-    LEFT JOIN dwh.d_customers cust
+    LEFT JOIN teamblue.dwh.d_customers cust
         ON fi.FK_CUSTOMERS = cust.PK_CUSTOMERS
     
     -- Geography dimension (through customers)
-    LEFT JOIN dwh.d_geography geo
+    LEFT JOIN teamblue.dwh.d_geography geo
         ON cust.FK_GEOGRAPHY_CUSTOMER = geo.PK_GEOGRAPHY
     
     -- Organization/Legal Entity dimension (through customers)
-    LEFT JOIN dwh.d_legal_entity org
+    LEFT JOIN teamblue.dwh.d_legal_entity org
         ON cust.FK_LEGAL_ENTITY = org.PK_LEGAL_ENTITY
     
     -- Product dimensions
-    LEFT JOIN dwh.d_products prod
+    LEFT JOIN teamblue.dwh.d_products prod
         ON fi.FK_PRODUCTS = prod.PK_PRODUCTS
-    LEFT JOIN dwh.d_product_segment prod_seg
+    LEFT JOIN teamblue.dwh.d_product_segment prod_seg
         ON fi.FK_PRODUCT_SEGMENT = prod_seg.PK_PRODUCT_SEGMENT
     
     -- Brand dimension (through products or direct)
-    LEFT JOIN dwh.d_budget_brand brand
+    LEFT JOIN teamblue.dwh.d_budget_brand brand
         ON prod.FK_BUDGET_BRAND = brand.PK_BUDGET_BRAND
         OR fi.FK_BUDGET_BRAND = brand.PK_BUDGET_BRAND
     
     -- Currency dimension
-    LEFT JOIN dwh.d_currency curr
+    LEFT JOIN teamblue.dwh.d_currency curr
         ON fi.FK_CURRENCY = curr.PK_CURRENCY
     
     -- Invoice type and classification
-    LEFT JOIN dwh.d_invoice_type inv_type
+    LEFT JOIN teamblue.dwh.d_invoice_type inv_type
         ON fi.FK_INVOICE_TYPE = inv_type.PK_INVOICE_TYPE
-    LEFT JOIN dwh.d_invoice_classification inv_class
+    LEFT JOIN teamblue.dwh.d_invoice_classification inv_class
         ON fi.FK_INVOICE_CLASSIFICATION = inv_class.PK_INVOICE_CLASSIFICATION
-    LEFT JOIN dwh.d_invoice_source inv_src
+    LEFT JOIN teamblue.dwh.d_invoice_source inv_src
         ON fi.FK_INVOICE_SOURCE = inv_src.PK_INVOICE_SOURCE
     
     -- Provider dimension
-    LEFT JOIN dwh.d_providers prov
+    LEFT JOIN teamblue.dwh.d_providers prov
         ON fi.FK_PROVIDERS = prov.PK_PROVIDERS
     
     -- Subscription dimension
-    LEFT JOIN dwh.d_subscriptions subs
+    LEFT JOIN teamblue.dwh.d_subscriptions subs
         ON fi.FK_SUBSCRIPTIONS = subs.PK_SUBSCRIPTIONS
     
     -- Business segment dimension
-    LEFT JOIN dwh.d_business_segment bus_seg
+    LEFT JOIN teamblue.dwh.d_business_segment bus_seg
         ON cust.FK_BUSINESS_SEGMENT = bus_seg.PK_BUSINESS_SEGMENT
 
 WHERE

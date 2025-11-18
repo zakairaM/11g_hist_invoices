@@ -1,7 +1,7 @@
 # Deferred Invoices View Documentation
 
 ## Overview
-This document describes the `dwh.v_deferred_invoices` view created to represent deferred revenue invoices from the dwh dimensional model.
+This document describes the `teamblue.dwh.v_deferred_invoices` view created to represent deferred revenue invoices from the dwh dimensional model.
 
 ## Purpose
 The view extracts and presents deferred invoices in a format comparable to `teamblue.silver.deferred_revenue` table, facilitating data validation and reconciliation between the dwh dimensional model and the Silver layer.
@@ -13,8 +13,8 @@ The view extracts and presents deferred invoices in a format comparable to `team
 ## Source Tables
 
 ### Fact Tables
-1. **`dwh.f_invoices`** - Main invoice fact table containing invoice transactions
-2. **`dwh.f_invoices_accrued`** - Accrual information for invoices including accrual dates and FX effects
+1. **`teamblue.dwh.f_invoices`** - Main invoice fact table containing invoice transactions
+2. **`teamblue.dwh.f_invoices_accrued`** - Accrual information for invoices including accrual dates and FX effects
 
 ### Dimension Tables
 The view joins to the following dimension tables to provide descriptive attributes:
@@ -88,14 +88,14 @@ The view includes multiple date dimensions:
 ### Query all deferred invoices
 ```sql
 SELECT * 
-FROM dwh.v_deferred_invoices
+FROM teamblue.dwh.v_deferred_invoices
 ORDER BY accrual_date;
 ```
 
 ### Compare with Silver layer
 ```sql
 -- Count comparison
-SELECT COUNT(*) as dwh_count FROM dwh.v_deferred_invoices;
+SELECT COUNT(*) as dwh_count FROM teamblue.dwh.v_deferred_invoices;
 SELECT COUNT(*) as silver_count FROM teamblue.silver.deferred_revenue;
 
 -- Column-level comparison by brand
@@ -103,7 +103,7 @@ SELECT
     brand_name,
     COUNT(*) as invoice_count,
     SUM(fx_effect_lm) as total_fx_lm
-FROM dwh.v_deferred_invoices
+FROM teamblue.dwh.v_deferred_invoices
 GROUP BY brand_name
 ORDER BY invoice_count DESC;
 ```
@@ -111,7 +111,7 @@ ORDER BY invoice_count DESC;
 ### Filter by specific brand
 ```sql
 SELECT *
-FROM dwh.v_deferred_invoices
+FROM teamblue.dwh.v_deferred_invoices
 WHERE brand_name = 'YourBrandName'
   AND accrual_date BETWEEN '2025-01-01' AND '2025-12-31';
 ```
@@ -123,7 +123,7 @@ SELECT
     brand_name,
     COUNT(*) as invoice_count,
     SUM(fx_effect_lm) as total_deferred_revenue
-FROM dwh.v_deferred_invoices
+FROM teamblue.dwh.v_deferred_invoices
 GROUP BY DATE_TRUNC('month', accrual_date), brand_name
 ORDER BY accrual_month, brand_name;
 ```
@@ -163,13 +163,13 @@ ORDER BY accrual_month, brand_name;
 
 ### To drop the view:
 ```sql
-DROP VIEW IF EXISTS dwh.v_deferred_invoices;
+DROP VIEW IF EXISTS teamblue.dwh.v_deferred_invoices;
 ```
 
 ### To check view dependencies:
 ```sql
 -- Find tables/views that reference this view
-SHOW DEPENDENCIES dwh.v_deferred_invoices;
+SHOW DEPENDENCIES teamblue.dwh.v_deferred_invoices;
 ```
 
 ## Validation Checklist
