@@ -115,10 +115,6 @@ FROM
     LEFT JOIN teamblue.dwh.d_geography geo
         ON fi.FK_GEOGRAPHY_CUSTOMER = geo.PK_GEOGRAPHY
     
-    -- Legal Entity dimension (through brand table for additional entity info if needed)
-    LEFT JOIN teamblue.dwh.d_legal_entity legal_ent
-        ON brand.FK_LEGAL_ENTITY = legal_ent.PK_LEGAL_ENTITY
-    
     -- Product dimensions
     LEFT JOIN teamblue.dwh.d_products prod
         ON fi.FK_PRODUCTS = prod.PK_PRODUCTS
@@ -128,6 +124,10 @@ FROM
     -- Brand dimension (through product segment)
     LEFT JOIN teamblue.dwh.d_budget_brand brand
         ON prod_seg.BK_BUDGET_BRAND_CODE = brand.BK_BUDGET_BRAND_CODE
+    
+    -- Legal Entity dimension (through brand table - must come AFTER brand join)
+    LEFT JOIN teamblue.dwh.d_legal_entity legal_ent
+        ON brand.FK_LEGAL_ENTITY = legal_ent.PK_LEGAL_ENTITY
     
     -- Currency dimension
     LEFT JOIN teamblue.dwh.d_currency curr
