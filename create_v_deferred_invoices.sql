@@ -15,7 +15,7 @@ SELECT
     CAST(NULL AS STRING) as sub_entity,  -- FK_LEGAL_ENTITY not found, needs adjustment
     
     -- Invoice classification
-    inv_type.INVOICE_TYPE_NAME as doc_type,
+    CAST(fi.FK_INVOICE_TYPE AS STRING) as doc_type,  -- d_invoice_type table doesn't exist
     inv_src.INVOICE_SOURCE_NAME as source_file_name,
     
     -- Invoice identifiers
@@ -63,7 +63,7 @@ SELECT
     
     -- Additional metadata
     fi.BK_INVOICE_LINE_CODE as memo,
-    inv_class.INVOICE_CLASSIFICATION_NAME as invoice_classification,
+    CAST(fi.FK_INVOICE_CLASSIFICATION AS STRING) as invoice_classification,  -- d_invoice_classification table doesn't exist
     
     -- Business segment
     bus_seg.BUSINESS_SEGMENT_NAME as business_segment,
@@ -134,11 +134,7 @@ FROM
     LEFT JOIN teamblue.dwh.d_currency curr
         ON fi.FK_CURRENCY = curr.PK_CURRENCY
     
-    -- Invoice type and classification
-    LEFT JOIN teamblue.dwh.d_invoice_type inv_type
-        ON fi.FK_INVOICE_TYPE = inv_type.PK_INVOICE_TYPE
-    LEFT JOIN teamblue.dwh.d_invoice_classification inv_class
-        ON fi.FK_INVOICE_CLASSIFICATION = inv_class.PK_INVOICE_CLASSIFICATION
+    -- Invoice source (d_invoice_type and d_invoice_classification tables don't exist)
     LEFT JOIN teamblue.dwh.d_invoice_source inv_src
         ON fi.FK_INVOICE_SOURCE = inv_src.PK_INVOICE_SOURCE
     
