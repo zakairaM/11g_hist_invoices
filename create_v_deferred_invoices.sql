@@ -12,7 +12,7 @@ SELECT
     -- Geographic and organizational dimensions
     geo.GEOGRAPHY_REGION_NAME as region,
     inv_src.BK_ACCOUNTING_ENTITY as entity,
-    inv_src.BK_ACCOUNTING_SUB_ENTITY as sub_entity
+    inv_src.BK_ACCOUNTING_SUB_ENTITY as sub_entity,
     
     -- Invoice classification
     CAST(fi.FK_INVOICE_TYPE AS STRING) as doc_type,  -- d_invoice_type table doesn't exist
@@ -73,7 +73,7 @@ SELECT
     
     -- Flags for deferred revenue logic
     CASE 
-        WHEN d_accrued.BK_DATE > CURRENT_DATE() THEN 1 
+        WHEN CAST(d_accrued.BK_DATE AS DATE) > CURRENT_DATE() THEN 1 
         ELSE 0 
     END as is_deferred,
     
@@ -151,7 +151,7 @@ FROM
 
 WHERE
     -- Filter for deferred invoices only (accrual date in the future)
-    d_accrued.BK_DATE > CURRENT_DATE()
+    CAST(d_accrued.BK_DATE AS DATE) > CURRENT_DATE()
     
     -- Optionally, you may want to include additional filters:
     -- AND inv_type.INVOICE_TYPE_NAME NOT IN ('Credit Note', 'Refund')
