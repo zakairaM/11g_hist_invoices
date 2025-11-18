@@ -32,10 +32,8 @@ SELECT
     -- Brand information
     brand.BUDGET_BRAND_NAME as brand_name,
     
-    -- Currency and exchange rates
+    -- Currency (exchange rate columns don't exist in dwh tables)
     curr.BK_CURRENCY_CODE as currency_code,
-    CAST(1.0 AS DOUBLE) as exchange_rate,  -- EXCHANGE_RATE column doesn't exist in f_invoices
-    CAST(1.0 AS DOUBLE) as exchange_rate_to_eur,  -- EXCHANGE_RATE column doesn't exist in f_invoices
     
     -- Date dimensions
     d_invoice.BK_DATE as transaction_date,
