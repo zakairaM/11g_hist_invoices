@@ -10,13 +10,13 @@
 CREATE OR REPLACE VIEW teamblue.dwh.v_deferred_invoices AS
 SELECT
     -- Geographic and organizational dimensions
-    geo.REGION_NAME as region,
-    CAST(NULL AS STRING) as entity,  -- FK_LEGAL_ENTITY not found, needs adjustment
-    CAST(NULL AS STRING) as sub_entity,  -- FK_LEGAL_ENTITY not found, needs adjustment
+    geo.GEOGRAPHY_REGION_NAME as region,
+    inv_src.BK_ACCOUNTING_ENTITY as entity,
+    inv_src.BK_ACCOUNTING_SUB_ENTITY as sub_entity
     
     -- Invoice classification
     CAST(fi.FK_INVOICE_TYPE AS STRING) as doc_type,  -- d_invoice_type table doesn't exist
-    inv_src.INVOICE_SOURCE_NAME as source_file_name,
+    inv_src.BK_INVOICE_SOURCE_NAME as source_file_name,
     
     -- Invoice identifiers
     fi.PK_INVOICES as invoice_pk,
@@ -30,10 +30,10 @@ SELECT
     cust.CUSTOMER_NAME as billing_system_customer_id,
     
     -- Brand information
-    brand.BRAND_NAME as brand_name,
+    brand.BUDGET_BRAND_NAME as brand_name,
     
     -- Currency and exchange rates
-    curr.CURRENCY_CODE as currency_code,
+    curr.BK_CURRENCY_CODE as currency_code,
     fi.EXCHANGE_RATE as exchange_rate,
     fi.EXCHANGE_RATE as exchange_rate_to_eur,
     
@@ -51,7 +51,7 @@ SELECT
     -- Product and subscription information
     prod.PRODUCT_NAME as terms,
     prod_seg.PRODUCT_SEGMENT_NAME as product_segment,
-    subs.SUBSCRIPTION_TYPE_NAME as subscription_type,
+    subs.BK_SUBSCRIPTION_STATUS as subscription_type,
     
     -- Provider information  
     prov.PROVIDER_NAME as provider_name,
@@ -115,10 +115,9 @@ FROM
     LEFT JOIN teamblue.dwh.d_geography geo
         ON fi.FK_GEOGRAPHY_CUSTOMER = geo.PK_GEOGRAPHY
     
-    -- Organization/Legal Entity dimension (if exists in your schema)
-    -- Note: FK_LEGAL_ENTITY was not found in d_customers, you may need to adjust this join
-    -- LEFT JOIN teamblue.dwh.d_legal_entity org
-    --     ON cust.FK_LEGAL_ENTITY = org.PK_LEGAL_ENTITY
+    -- Legal Entity dimension (through brand table for additional entity info if needed)
+    LEFT JOIN teamblue.dwh.d_legal_entity legal_ent
+        ON brand.FK_LEGAL_ENTITY = legal_ent.PK_LEGAL_ENTITY
     
     -- Product dimensions
     LEFT JOIN teamblue.dwh.d_products prod
