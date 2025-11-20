@@ -20,10 +20,10 @@ After investigation, we discovered `ssas_f_invoices_accrued_v2` which has **MUCH
 
 ### ⭐ **PRIMARY FILES (Use These!):**
 
-1. **`create_v_deferred_invoices_V2_IMPROVED.sql`** ⭐⭐⭐
+1. **`create_v_deferred_invoices_V2_CLEAN.sql`** ⭐⭐⭐
    - **THE MAIN FILE** - Execute this to create the improved view
    - Uses `ssas_f_invoices_accrued_v2` for accurate period amounts
-   - Much better comparison with silver
+   - Clean version without verbose comments
 
 2. **`V1_VS_V2_IMPROVEMENTS.md`** 📊
    - Explains ALL improvements in V2
@@ -50,7 +50,7 @@ After investigation, we discovered `ssas_f_invoices_accrued_v2` which has **MUCH
 ### Step 1: Deploy the View
 ```sql
 -- Execute this in Databricks SQL Editor:
--- Copy all contents from create_v_deferred_invoices_V2_IMPROVED.sql
+-- Copy all contents from create_v_deferred_invoices_V2_CLEAN.sql
 -- Run it
 ```
 
@@ -260,7 +260,7 @@ Even with V2's improvements, these remain:
 
 | File | Purpose | Status |
 |------|---------|--------|
-| `create_v_deferred_invoices_V2_IMPROVED.sql` | ⭐ Main view definition | **USE THIS** |
+| `create_v_deferred_invoices_V2_CLEAN.sql` | ⭐ Main view definition | **USE THIS** |
 | `V1_VS_V2_IMPROVEMENTS.md` | Explains V2 improvements | **READ THIS** |
 | `COMPARISON_GUIDE.md` | How to compare DWH vs Silver | Reference |
 | `README_V2_FINAL.md` | This file - Quick start | You are here |
